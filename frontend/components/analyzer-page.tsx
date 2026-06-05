@@ -1,0 +1,614 @@
+"use client"
+
+import { useState, useRef, useCallback, useEffect } from "react"
+import { Camera, ScanLine, AlertTriangle, CheckCircle, XCircle, Info, X, SwitchCamera, Upload, Loader2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface NutritionData {
+  productName: string
+  calories: number
+  protein: number
+  carbs: number
+  totalFat: number
+  sugar: number
+  sodium: number
+}
+
+interface AnalysisResult {
+  score: number
+  sugarLevel: "safe" | "moderate" | "danger"
+  sodiumLevel: "safe" | "moderate" | "danger"
+  calorieLevel: "safe" | "moderate" | "danger"
+  summary: string
+  warnings: string[]
+  tips: string[]
+}
+
+// ─── Analysis Logic ───────────────────────────────────────────────────────────
+
+const EMPTY: NutritionData = { productName: "", calories: 0, protein: 0, carbs: 0, totalFat: 0, sugar: 0, sodium: 0 }
+
+function classifyLevel(value: number, mod: number, danger: number): "safe" | "moderate" | "danger" {
+  if (value >= danger) return "danger"
+  if (value >= mod) return "moderate"
+  return "safe"
+}
+
+function analyze(data: NutritionData): AnalysisResult {
+  const sugarLevel = classifyLevel(data.sugar, 8, 15)
+  const sodiumLevel = classifyLevel(data.sodium, 500, 900)
+  const calorieLevel = classifyLevel(data.calories, 300, 600)
+  const levels = [sugarLevel, sodiumLevel, calorieLevel]
+  const score = Math.max(0, 100 - levels.filter((l) => l === "danger").length * 30 - levels.filter((l) => l === "moderate").length * 10)
+
+  const warnings: string[] = []
+  const tips: string[] = []
+
+  if (sugarLevel !== "safe") warnings.push(`น้ำตาล ${data.sugar}g ${sugarLevel === "danger" ? "สูงมาก เกินเกณฑ์ที่แนะนำ" : "ค่อนข้างสูง"}`)
+  if (sodiumLevel !== "safe") warnings.push(`โซเดียม ${data.sodium}mg ${sodiumLevel === "danger" ? "สูงมาก อาจส่งผลต่อความดันโลหิต" : "ค่อนข้างสูง"}`)
+  if (calorieLevel !== "safe") warnings.push(`แคลอรี ${data.calories} kcal ${calorieLevel === "danger" ? "สูงมากต่อมื้อเดียว" : "ค่อนข้างสูง"}`)
+
+  if (warnings.length === 0) tips.push("ผลิตภัณฑ์นี้มีระดับโภชนาการที่ปลอดภัย เหมาะสมสำหรับการบริโภคทั่วไป")
+  tips.push("ควรอ่านฉลากโภชนาการทุกครั้งก่อนรับประทาน")
+  if (sodiumLevel !== "safe") tips.push("ดื่มน้ำให้เพียงพอและลดอาหารเค็มในมื้อถัดไป")
+
+  const summary = score >= 80 ? "ผลิตภัณฑ์ปลอดภัย" : score >= 50 ? "ควรบริโภคในปริมาณพอดี" : "ควรหลีกเลี่ยงหรือบริโภคน้อยมาก"
+
+  return { score, sugarLevel, sodiumLevel, calorieLevel, summary, warnings, tips }
+}
+
+const LEVEL_CONFIG = {
+  safe:     { label: "ปลอดภัย",         color: "text-primary",     bg: "bg-[--nutri-green-light]",  icon: CheckCircle },
+  moderate: { label: "ควรระวัง",         color: "text-secondary",   bg: "bg-[--nutri-orange-light]", icon: AlertTriangle },
+  danger:   { label: "ควรหลีกเลี่ยง",   color: "text-destructive", bg: "bg-[--nutri-red-light]",    icon: XCircle },
+}
+
+// ─── Mock data removed — now using real AI via /api/analyze-image ────────────
+
+// ─── Camera Scanner Component ─────────────────────────────────────────────────
+
+function CameraScanner({
+  onCapture,
+  onClose,
+}: {
+  onCapture: (imageDataUrl: string) => void
+  onClose: () => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment")
+  const [cameraReady, setCameraReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const startCamera = useCallback(async (facing: "environment" | "user") => {
+    // Stop existing stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+    }
+    setCameraReady(false)
+    setError(null)
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play()
+          setCameraReady(true)
+        }
+      }
+    } catch (err) {
+      console.error("Camera error:", err)
+      setError("ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์")
+    }
+  }, [])
+
+  useEffect(() => {
+    startCamera(facingMode)
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSwitchCamera = () => {
+    const newFacing = facingMode === "environment" ? "user" : "environment"
+    setFacingMode(newFacing)
+    startCamera(newFacing)
+  }
+
+  const handleCapture = () => {
+    if (!videoRef.current || !canvasRef.current) return
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0)
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85)
+    onCapture(dataUrl)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
+        <button onClick={onClose} className="text-white p-2 -m-2">
+          <X className="w-6 h-6" />
+        </button>
+        <span className="text-white font-semibold text-sm">สแกนฉลากโภชนาการ</span>
+        <button onClick={handleSwitchCamera} className="text-white p-2 -m-2">
+          <SwitchCamera className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Video feed */}
+      <div className="flex-1 relative overflow-hidden flex items-center justify-center">
+        {error ? (
+          <div className="text-center p-8">
+            <Camera className="w-16 h-16 text-white/30 mx-auto mb-4" />
+            <p className="text-white/70 text-sm max-w-xs">{error}</p>
+            <button
+              onClick={() => startCamera(facingMode)}
+              className="mt-4 px-6 py-2 bg-white/20 text-white rounded-full text-sm"
+            >
+              ลองอีกครั้ง
+            </button>
+          </div>
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+              style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+            />
+
+            {/* Scan guide overlay */}
+            <div className="absolute inset-0 pointer-events-none">
+              {/* Dark edges */}
+              <div className="absolute inset-0 bg-black/40" />
+              {/* Clear center window */}
+              <div
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  width: "min(85vw, 340px)",
+                  height: "min(55vw, 220px)",
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)",
+                  borderRadius: 16,
+                }}
+              >
+                {/* Corner brackets */}
+                <div className="absolute top-0 left-0 w-8 h-8 border-t-3 border-l-3 border-white rounded-tl-xl" />
+                <div className="absolute top-0 right-0 w-8 h-8 border-t-3 border-r-3 border-white rounded-tr-xl" />
+                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-3 border-l-3 border-white rounded-bl-xl" />
+                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-3 border-r-3 border-white rounded-br-xl" />
+
+                {/* Scan line animation */}
+                <div
+                  className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent animate-pulse"
+                  style={{ top: "50%", opacity: 0.8 }}
+                />
+              </div>
+
+              {/* Guide text */}
+              <div className="absolute bottom-32 left-0 right-0 text-center">
+                <p className="text-white/90 text-sm font-medium">
+                  📋 วางฉลากโภชนาการให้อยู่ในกรอบ
+                </p>
+                <p className="text-white/60 text-xs mt-1">
+                  ถ่ายรูปให้ชัด เพื่อผลการอ่านที่แม่นยำ
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+        <canvas ref={canvasRef} className="hidden" />
+      </div>
+
+      {/* Capture button */}
+      <div className="flex items-center justify-center py-6 bg-black/80 backdrop-blur-sm">
+        <button
+          onClick={handleCapture}
+          disabled={!cameraReady}
+          className={cn(
+            "w-18 h-18 rounded-full border-4 border-white flex items-center justify-center transition-all",
+            cameraReady
+              ? "bg-white/20 hover:bg-white/30 active:scale-90"
+              : "bg-white/5 opacity-50 cursor-not-allowed"
+          )}
+          style={{ width: 72, height: 72 }}
+        >
+          <div className="w-14 h-14 rounded-full bg-white" style={{ width: 56, height: 56 }} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Preview Captured Image ───────────────────────────────────────────────────
+
+function CapturedPreview({
+  imageUrl,
+  scanning,
+  onRetake,
+  onConfirm,
+}: {
+  imageUrl: string
+  scanning: boolean
+  onRetake: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      {/* Image preview */}
+      <div className="relative rounded-xl overflow-hidden border border-border">
+        <img src={imageUrl} alt="ฉลากที่ถ่าย" className="w-full h-auto max-h-48 object-cover" />
+        {scanning && (
+          <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 text-white animate-spin" />
+            <p className="text-white text-sm font-medium">กำลังอ่านข้อมูลจากภาพ...</p>
+            <p className="text-white/60 text-xs">AI กำลังวิเคราะห์ฉลากโภชนาการ</p>
+          </div>
+        )}
+      </div>
+
+      {!scanning && (
+        <div className="flex gap-2">
+          <button
+            onClick={onRetake}
+            className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-2"
+          >
+            <Camera className="w-4 h-4" />
+            ถ่ายใหม่
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+          >
+            <ScanLine className="w-4 h-4" />
+            อ่านข้อมูล
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main AnalyzerPage ────────────────────────────────────────────────────────
+
+import { useAppStore } from "@/lib/store"
+import { useRouter } from "next/navigation"
+
+export default function AnalyzerPage() {
+  const { addScan } = useAppStore()
+  const router = useRouter()
+  const [form, setForm] = useState<NutritionData>(EMPTY)
+  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [hasSaved, setHasSaved] = useState(false)
+
+  const set = (k: keyof NutritionData, v: string) =>
+    setForm((prev) => ({ ...prev, [k]: k === "productName" ? v : parseFloat(v) || 0 }))
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setHasSaved(false)
+    setTimeout(() => {
+      setResult(analyze(form))
+      setLoading(false)
+    }, 600)
+  }
+
+  // Handle camera capture
+  const handleCameraCapture = (imageDataUrl: string) => {
+    setShowCamera(false)
+    setCapturedImage(imageDataUrl)
+  }
+
+  // Handle file upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setCapturedImage(ev.target?.result as string)
+    }
+    reader.readAsDataURL(file)
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
+
+  // Real AI OCR scanning using Gemini Vision
+  const handleOcrScan = async () => {
+    if (!capturedImage) return
+    setScanning(true)
+    try {
+      const res = await fetch("/api/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: capturedImage }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || "ไม่สามารถอ่านข้อมูลจากภาพได้ กรุณาลองใหม่")
+        setScanning(false)
+        return
+      }
+      const data = await res.json()
+      setForm({
+        productName: data.productName || "",
+        calories: data.calories || 0,
+        protein: data.protein || 0,
+        carbs: data.carbs || 0,
+        totalFat: data.totalFat || 0,
+        sugar: data.sugar || 0,
+        sodium: data.sodium || 0,
+      })
+      setCapturedImage(null)
+      setResult(null) // clear previous result
+    } catch {
+      alert("เกิดข้อผิดพลาด กรุณาลองใหม่")
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const scoreColor = result
+    ? result.score >= 80 ? "text-primary" : result.score >= 50 ? "text-secondary" : "text-destructive"
+    : "text-foreground"
+
+  return (
+    <>
+      {/* Camera fullscreen overlay */}
+      {showCamera && (
+        <CameraScanner
+          onCapture={handleCameraCapture}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+
+      <div className="p-4">
+        {/* Mobile: stacked. Desktop: side-by-side */}
+        <div className="flex flex-col md:flex-row gap-4 md:max-w-5xl md:mx-auto">
+          {/* Form */}
+          <div className="w-full md:w-[420px] md:flex-shrink-0">
+            <div className="bg-white rounded-2xl border border-border p-4 space-y-4">
+              <h2 className="font-bold text-base text-foreground">กรอกข้อมูลสารอาหารจากบรรจุภัณฑ์</h2>
+
+              {/* Camera / Upload buttons */}
+              {!capturedImage ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setShowCamera(true)}
+                    className="w-full h-12 rounded-xl bg-primary text-white font-semibold flex items-center justify-center gap-2 hover:bg-primary/90 active:scale-[0.98] transition-all text-sm"
+                  >
+                    <Camera className="w-4 h-4" />
+                    ถ่ายรูปสแกนฉลากโภชนาการ
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full h-10 rounded-xl border border-border text-muted-foreground font-medium flex items-center justify-center gap-2 hover:bg-muted/50 active:scale-[0.98] transition-all text-sm"
+                  >
+                    <Upload className="w-4 h-4" />
+                    เลือกรูปจากคลัง
+                  </button>
+                </div>
+              ) : (
+                <CapturedPreview
+                  imageUrl={capturedImage}
+                  scanning={scanning}
+                  onRetake={() => { setCapturedImage(null); setShowCamera(true) }}
+                  onConfirm={handleOcrScan}
+                />
+              )}
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground font-medium">หรือ กรอกเอง</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">ชื่อผลิตภัณฑ์ / ชื่ออาหาร</Label>
+                  <Input
+                    placeholder="เช่น นมเจดพาสเจอร์ไรส์ ตราเด็กดี"
+                    value={form.productName}
+                    onChange={(e) => set("productName", e.target.value)}
+                    className="h-11"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {(
+                    [
+                      { key: "calories",  label: "พลังงาน (KCAL)" },
+                      { key: "protein",   label: "โปรตีน (กรัม)" },
+                      { key: "carbs",     label: "คาร์โบไฮเดรต (กรัม)" },
+                      { key: "totalFat",  label: "ไขมันทั้งหมด (กรัม)" },
+                      { key: "sugar",     label: "น้ำตาล (กรัม)" },
+                      { key: "sodium",    label: "โซเดียม (มิลลิกรัม)" },
+                    ] as { key: keyof NutritionData; label: string }[]
+                  ).map(({ key, label }) => (
+                    <div key={key} className="space-y-1.5">
+                      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        value={form[key] === 0 ? "" : String(form[key])}
+                        onChange={(e) => set(key, e.target.value)}
+                        className="h-11"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full h-12 bg-primary hover:bg-primary/90 active:scale-[0.98] text-white font-semibold text-sm"
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <ScanLine className="w-4 h-4 animate-pulse" />
+                      กำลังวิเคราะห์...
+                    </span>
+                  ) : (
+                    "เริ่มการวิเคราะห์ผลิตภัณฑ์"
+                  )}
+                </Button>
+              </form>
+            </div>
+          </div>
+
+          {/* Results — below form on mobile, right panel on desktop */}
+          <div className="flex-1">
+            <div className="bg-white rounded-2xl border border-border p-4 flex flex-col">
+              {!result ? (
+                /* Empty state — compact on mobile, centered on desktop */
+                <div className="flex flex-col items-center justify-center text-center gap-3 py-10 md:py-16">
+                  <div className="w-14 h-14 rounded-2xl border-2 border-dashed border-border flex items-center justify-center">
+                    <ScanLine className="w-7 h-7 text-muted-foreground/40" />
+                  </div>
+                  <p className="font-semibold text-sm text-foreground">วิเคราะห์ผลิตภัณฑ์เพื่อสุขภาพที่ดียิ่งขึ้น</p>
+                  <p className="text-xs text-muted-foreground max-w-xs leading-relaxed">
+                    ถ่ายรูปสแกนฉลากโภชนาการ หรือกรอกข้อมูลด้านบน เพื่อประเมินคะแนนความปลอดภัยได้ทันที
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {/* Score */}
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 rounded-2xl bg-muted flex flex-col items-center justify-center flex-shrink-0">
+                      <span className={`text-3xl font-extrabold ${scoreColor}`}>{result.score}</span>
+                      <span className="text-[10px] text-muted-foreground font-medium">/100</span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-0.5">ผลการวิเคราะห์</p>
+                      <p className={`text-xl font-extrabold ${scoreColor}`}>{result.summary}</p>
+                      {form.productName && <p className="text-sm text-muted-foreground mt-1">{form.productName}</p>}
+                    </div>
+                  </div>
+
+                  {/* Level indicators */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {(
+                      [
+                        { label: "น้ำตาล", level: result.sugarLevel, val: `${form.sugar}g` },
+                        { label: "โซเดียม", level: result.sodiumLevel, val: `${form.sodium}mg` },
+                        { label: "แคลอรี", level: result.calorieLevel, val: `${form.calories}kcal` },
+                      ]
+                    ).map(({ label, level, val }) => {
+                      const cfg = LEVEL_CONFIG[level]
+                      const Icon = cfg.icon
+                      return (
+                        <div key={label} className={cn("rounded-xl p-3 flex flex-col gap-1", cfg.bg)}>
+                          <Icon className={cn("w-4 h-4", cfg.color)} />
+                          <p className="text-xs font-semibold text-foreground">{label}</p>
+                          <p className="text-sm font-bold text-foreground">{val}</p>
+                          <p className={cn("text-[10px] font-semibold", cfg.color)}>{cfg.label}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Warnings */}
+                  {result.warnings.length > 0 && (
+                    <div className="bg-[--nutri-red-light] rounded-xl p-4 space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <AlertTriangle className="w-4 h-4 text-destructive" />
+                        <p className="text-sm font-bold text-destructive">คำเตือน</p>
+                      </div>
+                      {result.warnings.map((w) => (
+                        <p key={w} className="text-xs text-foreground flex gap-2">
+                          <span className="text-destructive mt-0.5">•</span>
+                          {w}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Tips */}
+                  <div className="bg-[--nutri-green-light] rounded-xl p-4 space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Info className="w-4 h-4 text-primary" />
+                      <p className="text-sm font-bold text-primary">คำแนะนำ</p>
+                    </div>
+                    {result.tips.map((t) => (
+                      <p key={t} className="text-xs text-foreground flex gap-2">
+                        <span className="text-primary mt-0.5">•</span>
+                        {t}
+                      </p>
+                    ))}
+                  </div>
+
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    * การวิเคราะห์นี้อ้างอิงตามเกณฑ์ Thai RDI ของกระทรวงสาธารณสุข และไม่ใช่คำแนะนำทางการแพทย์
+                  </p>
+
+                  {/* Save to History Button */}
+                  <Button
+                    disabled={hasSaved}
+                    onClick={() => {
+                      addScan({
+                        productName: form.productName || "ไม่ระบุชื่อ",
+                        calories: form.calories,
+                        protein: form.protein,
+                        carbs: form.carbs,
+                        totalFat: form.totalFat,
+                        sugar: form.sugar,
+                        sodium: form.sodium,
+                        score: result.score,
+                        status: result.score >= 80 ? "safe" : result.score >= 50 ? "moderate" : "danger",
+                      })
+                      setHasSaved(true)
+                    }}
+                    className="w-full h-12 bg-black hover:bg-black/90 active:scale-[0.98] text-white font-semibold text-sm"
+                  >
+                    {hasSaved ? "บันทึกลงประวัติแล้ว" : "บันทึกลงประวัติ"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}

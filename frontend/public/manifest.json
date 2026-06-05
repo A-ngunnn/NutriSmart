@@ -1,0 +1,23 @@
+{
+  "name": "NutriSmart AI",
+  "short_name": "NutriSmart",
+  "description": "ผู้ช่วยโภชนาการส่วนบุคคลของคุณ ขับเคลื่อนด้วย AI อัจฉริยะ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1d9e75",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
