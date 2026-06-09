@@ -1,0 +1,14 @@
+name: Deploy Backend to Render
+
+on:
+  push:
+    branches:
+      - main  # ท่อจะทำงานอัตโนมัติทันทีที่มีการ push โค้ดเข้าสาขา main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deploy Hook
+        # ปรับความเยื้องบรรทัดของ curl ให้ถูกต้องตามมาตรฐานระบบ YAML
+        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
