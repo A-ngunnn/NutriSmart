@@ -6,12 +6,16 @@ Uses direct context injection (no vector DB needed for small knowledge bases).
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 
 from config import get_settings
 
 settings = get_settings()
+
+logger = logging.getLogger("nutrismart.rag_service")
+logging.basicConfig(level=logging.INFO)
 
 # ── Cached knowledge ─────────────────────────────────────────────────────────
 _knowledge_items: Optional[list[dict]] = None
@@ -27,15 +31,20 @@ def _load_knowledge() -> list[dict]:
     all_items: list[dict] = []
 
     if not knowledge_path.exists():
-        print(f"[KNOWLEDGE] Warning: directory not found: {knowledge_path}")
+        logger.warning("Knowledge path not found: %s", knowledge_path)
         _knowledge_items = []
         return _knowledge_items
 
-    for json_file in knowledge_path.glob("*.json"):
-        with open(json_file, "r", encoding="utf-8") as f:
-            items = json.load(f)
-            if isinstance(items, list):
-                all_items.extend(items)
+    json_files = [knowledge_path] if knowledge_path.is_file() else list(knowledge_path.glob("*.json"))
+
+    for json_file in json_files:
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                items = json.load(f)
+                if isinstance(items, list):
+                    all_items.extend(items)
+        except Exception as exc:
+            logger.error("Failed to load knowledge file %s: %s", json_file, exc)
 
     _knowledge_items = all_items
     return _knowledge_items

@@ -3,9 +3,13 @@
 import { useMemo } from "react"
 import { Activity, Zap, ScanLine, Search, MessageCircle, ArrowRight, Droplet, Plus, Flame, ChevronRight, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useAppStore } from "@/lib/store"
-import { calcBMI, calcTDEE } from "@/lib/store"
+import { useAppStore, calcBMI, calcTDEE } from "@/lib/store"
 import Link from "next/link"
+import type { DashboardSummary } from "@/lib/backend-api"
+
+interface HomeDashboardProps {
+  summary?: DashboardSummary | null
+}
 
 function getGreeting(name: string): { text: string; sub: string } {
   const h = new Date().getHours()
@@ -57,32 +61,36 @@ function CalorieRing({ current, target }: { current: number; target: number }) {
   )
 }
 
-export default function HomeDashboard() {
+export default function HomeDashboard({ summary }: HomeDashboardProps) {
   const { userName, profile, foodEntries, waterEntries, scanHistory, addWaterEntry } = useAppStore()
 
+  const profileData = summary?.profile ?? profile
+  const displayName = summary?.profile?.name || userName || "คุณ"
   const todayKey = new Date().toISOString().slice(0, 10)
 
-  const todayEntries = useMemo(() => foodEntries.filter(e => e.date === todayKey), [foodEntries, todayKey])
-  const waterToday = useMemo(
+  const todayEntries = useMemo(
+    () => summary ? [] : foodEntries.filter(e => e.date === todayKey),
+    [foodEntries, todayKey, summary]
+  )
+  const waterToday = summary?.water_today ?? useMemo(
     () => waterEntries.filter(e => e.date === todayKey).reduce((s, e) => s + e.amount, 0),
     [waterEntries, todayKey]
   )
 
-  const bmi = calcBMI(parseFloat(profile.weight), parseFloat(profile.height))
-  const tdee = calcTDEE(
+  const bmi = summary ? profileData.weight && profileData.height ? calcBMI(parseFloat(profileData.weight), parseFloat(profileData.height)) : 0 : calcBMI(parseFloat(profile.weight), parseFloat(profile.height))
+  const tdee = summary?.tdee ?? calcTDEE(
     parseFloat(profile.weight), parseFloat(profile.height),
     parseFloat(profile.age), profile.gender, profile.activityLevel, profile.goal
   )
-  const waterTarget = Math.round((parseFloat(profile.weight) || 60) * 33)
-  const caloriesToday = todayEntries.reduce((s, e) => s + e.calories, 0)
+  const waterTarget = summary?.water_target ?? Math.round((parseFloat(profile.weight) || 60) * 33)
+  const caloriesToday = summary?.calories_today ?? todayEntries.reduce((s, e) => s + e.calories, 0)
 
-  const greeting = getGreeting(userName || "คุณ")
+  const greeting = getGreeting(displayName)
 
   const bmiColor = bmi === 0 ? "text-muted-foreground" : bmi < 25 ? "text-primary" : "text-destructive"
   const bmiLabel = bmi === 0 ? "ยังไม่มีข้อมูล" : bmi < 18.5 ? "น้ำหนักน้อย" : bmi < 25 ? "สมส่วนดี" : bmi < 30 ? "น้ำหนักเกิน" : "อ้วน"
 
-  // Meals eaten today
-  const mealsToday = useMemo(() => {
+  const mealsToday = summary?.meal_totals ?? useMemo(() => {
     const map: Record<string, number> = {}
     todayEntries.forEach(e => { map[e.mealType] = (map[e.mealType] || 0) + e.calories })
     return map

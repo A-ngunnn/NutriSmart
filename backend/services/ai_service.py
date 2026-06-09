@@ -1,29 +1,42 @@
 """
-AI Service – wraps Google Gemini for nutrition label analysis and chat.
+AI Service – MedGemma via OpenRouter (LangChain ChatOpenAI)
 Uses RAG (Retrieval-Augmented Generation) to ground answers in Thai RDI knowledge.
 """
 
 import base64
 import json
 import re
+import asyncio
 from typing import Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_community.chat_models import ChatOpenAI
+from langchain.schema import HumanMessage, SystemMessage, AIMessage
+import logging
 
 from config import get_settings
 from services.rag_service import get_all_context, get_relevant_context
 
 settings = get_settings()
 
-# ── Shared LLM instance ─────────────────────────────────────────────────────
+logger = logging.getLogger("nutrismart.ai_service")
+logging.basicConfig(level=logging.INFO)
 
-def _get_llm(temperature: float = 0.3) -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=settings.gemini_api_key,
+
+# ── Shared LLM instance (ChatOpenAI pointing to OpenRouter) ──────────────────
+def _get_llm(temperature: float = 0.3):
+    api_key = settings.medgemma_api_key or settings.gemini_api_key or ""
+    if not api_key:
+        logger.error("Missing LLM API key. Set MEDGEMMA_API_KEY or GEMINI_API_KEY in environment.")
+        raise ValueError("Missing LLM API key. Set MEDGEMMA_API_KEY or GEMINI_API_KEY in environment.")
+
+    # ChatOpenAI accepts openai_api_base/openai_api_key to point at OpenRouter
+    model = getattr(settings, "medgemma_model", "google/gemma-2-9b-it")
+    return ChatOpenAI(
+        model_name=model,
         temperature=temperature,
-        max_output_tokens=4096,
+        max_tokens=4096,
+        openai_api_key=api_key,
+        openai_api_base="https://openrouter.ai/api/v1",
     )
 
 
@@ -87,20 +100,35 @@ async def analyze_label_image(image_base64: str, mime_type: str = "image/jpeg") 
 
     llm = _get_llm(temperature=0.1)
 
-    message = HumanMessage(
-        content=[
-            {"type": "text", "text": "กรุณาวิเคราะห์ฉลากโภชนาการจากภาพนี้"},
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
-            },
-        ]
+    message_text = (
+        "กรุณาวิเคราะห์ฉลากโภชนาการจากภาพนี้\n"
+        "ให้สรุปข้อมูลโภชนาการจากภาพพร้อมให้คะแนนสุขภาพตามเกณฑ์ Thai RDI\n"
+        f"data:{mime_type};base64,{image_base64}"
     )
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=message_text)]
 
-    response = await llm.ainvoke([SystemMessage(content=system_prompt), message])
+    # Use sync ChatOpenAI via thread to avoid blocking event loop if not async
+    try:
+        result = await asyncio.to_thread(llm.generate, [messages])
+    except Exception as exc:
+        err_text = str(exc)
+        logger.warning("LLM generate failed: %s", err_text)
+        # Retry with fallback model if OpenRouter reports no endpoints for the requested model
+        if "No endpoints found" in err_text or "No endpoints" in err_text or "404" in err_text:
+            fallback = getattr(settings, "medgemma_fallback_model", "gpt-4o-mini")
+            logger.info("Falling back to model: %s", fallback)
+            llm = ChatOpenAI(
+                model_name=fallback,
+                temperature=0.1,
+                max_tokens=4096,
+                openai_api_key=settings.medgemma_api_key or settings.gemini_api_key,
+                openai_api_base="https://openrouter.ai/api/v1",
+            )
+            result = await asyncio.to_thread(llm.generate, [messages])
+        else:
+            raise
 
-    # Parse JSON from response
-    text = response.content.strip()
+    text = result.generations[0][0].text.strip()
     # Remove markdown code block markers if present
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
@@ -146,12 +174,24 @@ async def analyze_manual_input(
 กรุณาให้คะแนนสุขภาพและคำแนะนำ ตอบเป็น JSON เท่านั้น"""
 
     llm = _get_llm(temperature=0.1)
-    response = await llm.ainvoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
-    ])
-
-    text = response.content.strip()
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+    try:
+        result = await asyncio.to_thread(llm.generate, [messages])
+    except Exception as exc:
+        err_text = str(exc)
+        if "No endpoints found" in err_text or "No endpoints" in err_text or "404" in err_text:
+            fallback = getattr(settings, "medgemma_fallback_model", "gpt-4o-mini")
+            llm = ChatOpenAI(
+                model_name=fallback,
+                temperature=0.1,
+                max_tokens=4096,
+                openai_api_key=settings.medgemma_api_key or settings.gemini_api_key,
+                openai_api_base="https://openrouter.ai/api/v1",
+            )
+            result = await asyncio.to_thread(llm.generate, [messages])
+        else:
+            raise
+    text = result.generations[0][0].text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
 
@@ -195,7 +235,6 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> 
 
     # Add chat history if provided
     if chat_history:
-        from langchain_core.messages import AIMessage
         for msg in chat_history[-6:]:  # Keep last 6 messages for context
             if msg.get("role") == "user":
                 messages.append(HumanMessage(content=msg["content"]))
@@ -204,7 +243,22 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> 
 
     messages.append(HumanMessage(content=user_message))
 
-    llm = _get_llm(temperature=0.5)
-    response = await llm.ainvoke(messages)
+    try:
+        llm = _get_llm(temperature=0.5)
+        result = await asyncio.to_thread(llm.generate, [messages])
+    except Exception as exc:
+        err_text = str(exc)
+        if "No endpoints found" in err_text or "No endpoints" in err_text or "404" in err_text:
+            fallback = getattr(settings, "medgemma_fallback_model", "gpt-4o-mini")
+            llm = ChatOpenAI(
+                model_name=fallback,
+                temperature=0.5,
+                max_tokens=4096,
+                openai_api_key=settings.medgemma_api_key or settings.gemini_api_key,
+                openai_api_base="https://openrouter.ai/api/v1",
+            )
+            result = await asyncio.to_thread(llm.generate, [messages])
+        else:
+            raise
 
-    return response.content
+    return result.generations[0][0].text

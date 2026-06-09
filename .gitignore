@@ -16,6 +16,7 @@ out/
 dist/
 /build
 build/
+.turbo/
 
 # Debug logs
 npm-debug.log*
@@ -45,6 +46,8 @@ ENV/
 .venv/
 pip-log.txt
 pip-delete-this-directory.txt
+.bash_history
+.python_history
 
 # Database & Vector Database (ChromaDB Cache ตัวไฟล์หนัก)
 **/chroma_data/
@@ -62,4 +65,6 @@ Thumbs.db
 # Vercel & Deployment
 .vercel
 *.tsbuildinfo
-next-env.d.ts
+
+# Local backups
+*.json.bak

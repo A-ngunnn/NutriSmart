@@ -1,7 +1,18 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createClient } from "@/lib/supabase/client";
-
+import {
+  fetchUserProfile,
+  saveUserProfile,
+  fetchFoodLogs,
+  createFoodLog,
+  deleteFoodLog,
+  fetchScanLogs,
+  createScanLog,
+  fetchWaterLogs,
+  createWaterLog,
+  deleteWaterLog,
+} from "@/lib/backend-api";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ProfileData {
@@ -140,7 +151,8 @@ export const useAppStore = create<AppState>()(
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
-          await supabase.from("profiles").update({ name }).eq("id", session.user.id)
+          const saved = await saveUserProfile({ ...get().profile, name }, session.user.id)
+          set({ profile: saved, userName: saved.name || name })
         }
       },
 
@@ -152,49 +164,18 @@ export const useAppStore = create<AppState>()(
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
-          await supabase.from("profiles").upsert({
-            id: session.user.id,
-            name: profile.name,
-            age: profile.age ? Number(profile.age) : null,
-            gender: profile.gender,
-            weight: profile.weight ? Number(profile.weight) : null,
-            height: profile.height ? Number(profile.height) : null,
-            activity_level: profile.activityLevel,
-            goal: profile.goal,
-          })
+          const saved = await saveUserProfile(profile, session.user.id)
+          set({ profile: saved, userName: saved.name || profile.name || get().userName })
         }
       },
 
       addFoodEntry: async (entry) => {
-        const tempId = `food_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        const dateStr = todayKey()
-        const newEntry: FoodEntry = {
-          ...entry,
-          id: tempId,
-          date: dateStr,
-        }
-        set((state) => ({ foodEntries: [newEntry, ...state.foodEntries] }))
-
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
-        if (session) {
-          const { data, error } = await supabase.from("food_logs").insert({
-            name: entry.name,
-            meal_type: entry.mealType,
-            calories: entry.calories,
-            protein: entry.protein,
-            carbs: entry.carbs,
-            fat: entry.fat,
-            date: dateStr,
-            user_id: session.user.id
-          }).select().single()
+        if (!session) return
 
-          if (!error && data) {
-            set((state) => ({
-              foodEntries: state.foodEntries.map((e) => e.id === tempId ? { ...e, id: data.id } : e)
-            }))
-          }
-        }
+        const created = await createFoodLog({ ...entry, date: todayKey() }, session.user.id)
+        set((state) => ({ foodEntries: [created, ...state.foodEntries] }))
       },
 
       removeFoodEntry: async (id) => {
@@ -203,7 +184,7 @@ export const useAppStore = create<AppState>()(
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
-          await supabase.from("food_logs").delete().eq("id", id).eq("user_id", session.user.id)
+          await deleteFoodLog(id, session.user.id)
         }
       },
 
@@ -220,66 +201,21 @@ export const useAppStore = create<AppState>()(
       },
 
       addScan: async (scan) => {
-        const tempId = `scan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        const dateStr = todayKey()
-        const thaiDate = new Date().toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })
-        const newScan: ScanRecord = {
-          ...scan,
-          id: tempId,
-          date: thaiDate,
-        }
-        set((state) => ({ scanHistory: [newScan, ...state.scanHistory] }))
-
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
-        if (session) {
-          const { data, error } = await supabase.from("scan_history").insert({
-            product_name: scan.productName,
-            calories: scan.calories,
-            protein: scan.protein,
-            carbs: scan.carbs,
-            total_fat: scan.totalFat,
-            sugar: scan.sugar,
-            sodium: scan.sodium,
-            score: scan.score,
-            status: scan.status,
-            date: dateStr,
-            user_id: session.user.id
-          }).select().single()
+        if (!session) return
 
-          if (!error && data) {
-            set((state) => ({
-              scanHistory: state.scanHistory.map((s) => s.id === tempId ? { ...s, id: data.id } : s)
-            }))
-          }
-        }
+        const created = await createScanLog({ ...scan, date: todayKey() }, session.user.id)
+        set((state) => ({ scanHistory: [created as ScanRecord, ...state.scanHistory] }))
       },
 
       addWaterEntry: async (amount) => {
-        const tempId = `water_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        const dateStr = todayKey()
-        const newEntry: WaterEntry = {
-          id: tempId,
-          amount,
-          date: dateStr,
-        }
-        set((state) => ({ waterEntries: [newEntry, ...state.waterEntries] }))
-
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
-        if (session) {
-          const { data, error } = await supabase.from("water_logs").insert({
-            amount,
-            date: dateStr,
-            user_id: session.user.id
-          }).select().single()
+        if (!session) return
 
-          if (!error && data) {
-            set((state) => ({
-              waterEntries: state.waterEntries.map((w) => w.id === tempId ? { ...w, id: data.id } : w)
-            }))
-          }
-        }
+        const created = await createWaterLog(amount, todayKey(), session.user.id)
+        set((state) => ({ waterEntries: [created, ...state.waterEntries] }))
       },
 
       removeWaterEntry: async (id) => {
@@ -288,7 +224,7 @@ export const useAppStore = create<AppState>()(
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
-          await supabase.from("water_logs").delete().eq("id", id).eq("user_id", session.user.id)
+          await deleteWaterLog(id, session.user.id)
         }
       },
 
@@ -300,99 +236,24 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchUserData: async (userId) => {
-        const supabase = createClient()
-        
-        // 1. Fetch Profile
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .single()
-        
-        let profile = DEFAULT_PROFILE
-        let userName = ""
-        if (profileData) {
-          profile = {
-            name: profileData.name || "",
-            age: profileData.age?.toString() || "",
-            gender: profileData.gender || "male",
-            weight: profileData.weight?.toString() || "",
-            height: profileData.height?.toString() || "",
-            activityLevel: profileData.activity_level || "sedentary",
-            goal: profileData.goal || "maintain",
-          }
-          userName = profileData.name || ""
+        if (!userId) return
+
+        try {
+          const profile = await fetchUserProfile(userId)
+          const foodEntries = await fetchFoodLogs(userId)
+          const scanHistory = (await fetchScanLogs(userId)) as ScanRecord[]
+          const waterEntries = await fetchWaterLogs(userId)
+
+          set({
+            userName: profile.name || "",
+            profile,
+            foodEntries,
+            scanHistory,
+            waterEntries,
+          })
+        } catch (error) {
+          console.error("fetchUserData failed:", error)
         }
-
-        // 2. Fetch Food Entries
-        const { data: foodData } = await supabase
-          .from("food_logs")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-        
-        const foodEntries: FoodEntry[] = (foodData || []).map((f) => ({
-          id: f.id,
-          name: f.name,
-          mealType: f.meal_type,
-          calories: Number(f.calories),
-          protein: Number(f.protein),
-          carbs: Number(f.carbs),
-          fat: Number(f.fat),
-          date: f.date,
-        }))
-
-        // 3. Fetch Scan History
-        const { data: scanData } = await supabase
-          .from("scan_history")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-        
-        const scanHistory: ScanRecord[] = (scanData || []).map((s) => {
-          let thaiDate = ""
-          try {
-            const [y, m, d] = s.date.split("-").map(Number)
-            const dateObj = new Date(y, m - 1, d)
-            thaiDate = dateObj.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })
-          } catch {
-            thaiDate = s.date
-          }
-          return {
-            id: s.id,
-            date: thaiDate,
-            productName: s.product_name,
-            calories: Number(s.calories),
-            protein: Number(s.protein),
-            carbs: Number(s.carbs),
-            totalFat: Number(s.total_fat),
-            sugar: Number(s.sugar),
-            sodium: Number(s.sodium),
-            score: Number(s.score),
-            status: s.status as "safe" | "moderate" | "danger",
-          }
-        })
-
-        // 4. Fetch Water Entries
-        const { data: waterData } = await supabase
-          .from("water_logs")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-        
-        const waterEntries: WaterEntry[] = (waterData || []).map((w) => ({
-          id: w.id,
-          amount: Number(w.amount),
-          date: w.date,
-        }))
-
-        set({
-          userName,
-          profile,
-          foodEntries,
-          scanHistory,
-          waterEntries,
-        })
       },
 
       clearState: () => set({

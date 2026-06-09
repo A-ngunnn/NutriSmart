@@ -9,6 +9,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
 from services.ai_service import analyze_label_image, analyze_manual_input
+from services.storage_service import insert_scan_record
 
 router = APIRouter(prefix="/api/analyze", tags=["Analyze"])
 
@@ -48,6 +49,7 @@ class AnalyzeResponse(BaseModel):
 @router.post("/image", response_model=AnalyzeResponse)
 async def analyze_image(
     file: UploadFile = File(...),
+    user_id: Optional[str] = Form(None),
 ):
     """Analyze a nutrition label from an uploaded image."""
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -62,6 +64,17 @@ async def analyze_image(
 
     try:
         result = await analyze_label_image(image_base64, mime_type=file.content_type)
+        inserted = insert_scan_record(user_id, {
+            "product_name": result["productName"],
+            "calories": result["calories"],
+            "protein": result["protein"],
+            "carbs": result["carbs"],
+            "total_fat": result["totalFat"],
+            "sugar": result["sugar"],
+            "sodium": result["sodium"],
+            "score": result["score"],
+            "status": result["status"],
+        })
         return AnalyzeResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")

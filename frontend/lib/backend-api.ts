@@ -1,9 +1,23 @@
 /**
  * NutriSmart API Client
- * Calls Python FastAPI Backend (port 8080) for AI analysis and chat.
+ * Calls Python FastAPI Backend (port 8080) for AI analysis, chat, and app data.
  */
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") || "";
+
+function getBackendUrl() {
+  if (BACKEND_URL) {
+    return BACKEND_URL
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8080`
+  }
+
+  return "http://localhost:8080"
+}
+
+const resolvedBackendUrl = getBackendUrl()
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,12 +44,128 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ProfileData {
+  name: string;
+  age: string;
+  gender: string;
+  weight: string;
+  height: string;
+  activityLevel: string;
+  goal: string;
+}
+
+export interface DashboardSummary {
+  profile: ProfileData;
+  bmi: number;
+  tdee: number;
+  calories_today: number;
+  calories_remaining: number;
+  scan_count: number;
+  water_today: number;
+  water_target: number;
+  meal_totals: Record<string, number>;
+}
+
+export interface FoodLogEntry {
+  id: string;
+  user_id: string;
+  name: string;
+  mealType: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  date: string;
+  created_at: string;
+}
+
+export interface ScanLogEntry {
+  id: string;
+  user_id: string;
+  productName: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  totalFat: number;
+  sugar: number;
+  sodium: number;
+  score: number;
+  status: "safe" | "moderate" | "danger";
+  date: string;
+  created_at: string;
+}
+
+export interface WaterLogEntry {
+  id: string;
+  user_id: string;
+  amount: number;
+  date: string;
+  created_at: string;
+}
+
+export interface HealthStatus {
+  status: string;
+  service: string;
+  version: string;
+  database: string;
+  model: string;
+  ai_api_key_set: boolean;
+  database_error?: string;
+}
+
+export interface HealthSummary {
+  profile: ProfileData;
+  tdee: number;
+  last_7_days: Array<{
+    date: string;
+    label: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  }>;
+  avg_calories: number;
+  avg_scan_score: number;
+  scan_count: number;
+  macro_totals: {
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  scan_history: ScanLogEntry[];
+}
+
+function buildUrl(path: string, userId?: string) {
+  const url = new URL(`${resolvedBackendUrl}${path}`)
+  if (userId) url.searchParams.set("user_id", userId)
+  if (typeof window !== "undefined") {
+    console.debug("[backend-api] buildUrl", { resolvedBackendUrl, path, url: url.toString() })
+  }
+  return url.toString()
+}
+
+async function parseJson<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const body = await response.text().catch(() => "")
+    if (typeof window !== "undefined") {
+      console.debug("[backend-api] parseJson error", { status: response.status, body })
+    }
+    let error
+    try {
+      error = JSON.parse(body)
+    } catch {
+      error = {}
+    }
+    throw new Error(error.detail || body || "Backend request failed")
+  }
+  return response.json();
+}
+
 // ── Analyze: image ────────────────────────────────────────────────────────────
 
 export async function analyzeImageWithBackend(
   imageBase64DataURL: string
 ): Promise<AnalyzeResult> {
-  // Extract mime type and base64 data from data URL
   const match = imageBase64DataURL.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) throw new Error("Invalid image format");
 
@@ -43,7 +173,6 @@ export async function analyzeImageWithBackend(
   const base64Data = match[2];
 
   const formData = new FormData();
-  // Convert base64 to Blob
   const byteCharacters = atob(base64Data);
   const byteNumbers = new Array(byteCharacters.length)
     .fill(0)
@@ -57,12 +186,7 @@ export async function analyzeImageWithBackend(
     body: formData,
   });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail || "Backend analysis failed");
-  }
-
-  return response.json();
+  return parseJson<AnalyzeResult>(response);
 }
 
 // ── Analyze: manual input ─────────────────────────────────────────────────────
@@ -82,12 +206,7 @@ export async function analyzeManualWithBackend(data: {
     body: JSON.stringify(data),
   });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail || "Backend analysis failed");
-  }
-
-  return response.json();
+  return parseJson<AnalyzeResult>(response);
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -102,16 +221,122 @@ export async function chatWithBackend(
     body: JSON.stringify({ message, history }),
   });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail || "Chat failed");
-  }
-
-  const data = await response.json();
+  const data = await parseJson<{ reply: string }>(response);
   return data.reply;
 }
 
-// ── Health check ──────────────────────────────────────────────────────────────
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export async function fetchDashboardSummary(userId?: string): Promise<DashboardSummary> {
+  const response = await fetch(buildUrl("/api/dashboard/summary", userId));
+  return parseJson<DashboardSummary>(response);
+}
+
+// ── Profile ─────────────────────────────────────────────────────────────────--
+
+export async function fetchUserProfile(userId?: string): Promise<ProfileData> {
+  const response = await fetch(buildUrl("/api/profile", userId));
+  return parseJson<ProfileData>(response);
+}
+
+export async function saveUserProfile(profile: ProfileData, userId?: string): Promise<ProfileData> {
+  const response = await fetch(buildUrl("/api/profile", userId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+  return parseJson<ProfileData>(response);
+}
+
+// ── Food logs ────────────────────────────────────────────────────────────────
+
+export async function fetchFoodLogs(userId?: string): Promise<FoodLogEntry[]> {
+  const response = await fetch(buildUrl("/api/logs/food", userId));
+  return parseJson<FoodLogEntry[]>(response);
+}
+
+export async function createFoodLog(
+  entry: Omit<FoodLogEntry, "id" | "user_id" | "created_at">,
+  userId?: string
+): Promise<FoodLogEntry> {
+  const response = await fetch(buildUrl("/api/logs/food", userId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  return parseJson<FoodLogEntry>(response);
+}
+
+export async function deleteFoodLog(entryId: string, userId?: string): Promise<void> {
+  const response = await fetch(buildUrl(`/api/logs/food/${entryId}`, userId), {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Delete food log failed");
+  }
+}
+
+// ── Scan logs ───────────────────────────────────────────────────────────────
+
+export async function fetchScanLogs(userId?: string): Promise<ScanLogEntry[]> {
+  const response = await fetch(buildUrl("/api/logs/scan", userId));
+  return parseJson<ScanLogEntry[]>(response);
+}
+
+export async function createScanLog(
+  scan: Omit<ScanLogEntry, "id" | "user_id" | "created_at">,
+  userId?: string
+): Promise<ScanLogEntry> {
+  const response = await fetch(buildUrl("/api/logs/scan", userId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scan),
+  });
+  return parseJson<ScanLogEntry>(response);
+}
+
+// ── Water logs ───────────────────────────────────────────────────────────────
+
+export async function fetchWaterLogs(userId?: string): Promise<WaterLogEntry[]> {
+  const response = await fetch(buildUrl("/api/logs/water", userId));
+  return parseJson<WaterLogEntry[]>(response);
+}
+
+export async function createWaterLog(
+  amount: number,
+  date?: string,
+  userId?: string
+): Promise<WaterLogEntry> {
+  const response = await fetch(buildUrl("/api/logs/water", userId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, date }),
+  });
+  return parseJson<WaterLogEntry>(response);
+}
+
+export async function deleteWaterLog(entryId: string, userId?: string): Promise<void> {
+  const response = await fetch(buildUrl(`/api/logs/water/${entryId}`, userId), {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Delete water entry failed");
+  }
+}
+
+// ── Health ───────────────────────────────────────────────────────────────────
+
+export async function fetchHealthStatus(userId?: string): Promise<HealthStatus> {
+  const response = await fetch(buildUrl("/api/health/status", userId));
+  return parseJson<HealthStatus>(response);
+}
+
+export async function fetchHealthSummary(userId?: string): Promise<HealthSummary> {
+  const response = await fetch(buildUrl("/api/health/summary", userId));
+  return parseJson<HealthSummary>(response);
+}
 
 export async function checkBackendHealth(): Promise<boolean> {
   try {

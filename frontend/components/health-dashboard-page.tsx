@@ -6,6 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine
 } from "recharts"
+import { type HealthSummary } from "@/lib/backend-api"
 
 interface ScanRecord {
   id: string
@@ -42,6 +43,7 @@ interface HealthDashboardProps {
   scanHistory?: ScanRecord[]
   foodEntries?: FoodEntry[]
   profile?: ProfileData
+  summary?: HealthSummary | null
 }
 
 function calcTDEE(p: ProfileData | undefined): number {
@@ -55,10 +57,15 @@ function calcTDEE(p: ProfileData | undefined): number {
   return Math.round(tdee)
 }
 
-export default function HealthDashboardPage({ scanHistory = [], foodEntries = [], profile }: HealthDashboardProps) {
-  const tdee = calcTDEE(profile)
+export default function HealthDashboardPage({ scanHistory = [], foodEntries = [], profile, summary }: HealthDashboardProps) {
+  const profileData = summary?.profile ?? profile
+  const tdee = summary?.tdee ?? calcTDEE(profileData)
+  const scanHistoryData = summary?.scan_history ?? scanHistory
 
   const last7Days = useMemo(() => {
+    if (summary?.last_7_days) {
+      return summary.last_7_days
+    }
     const days = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
@@ -75,7 +82,7 @@ export default function HealthDashboardPage({ scanHistory = [], foodEntries = []
       })
     }
     return days
-  }, [foodEntries])
+  }, [foodEntries, summary])
 
   const totalMacros = useMemo(() => {
     let protein = 0, carbs = 0, fat = 0
@@ -84,8 +91,10 @@ export default function HealthDashboardPage({ scanHistory = [], foodEntries = []
   }, [last7Days])
 
   const avgCal = Math.round(last7Days.reduce((s, d) => s + d.calories, 0) / 7)
-  const avgScore = scanHistory.length > 0
-    ? Math.round(scanHistory.reduce((a, b) => a + b.score, 0) / scanHistory.length) : 0
+  const avgScore = summary?.avg_scan_score ?? (
+    scanHistoryData.length > 0
+      ? Math.round(scanHistoryData.reduce((a, b) => a + b.score, 0) / scanHistoryData.length) : 0
+  )
 
   const macroData = [
     { name: "โปรตีน", value: totalMacros.protein, fill: "var(--color-primary)" },
@@ -124,7 +133,7 @@ export default function HealthDashboardPage({ scanHistory = [], foodEntries = []
               <span className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm">📋</span>
               <span className="text-sm font-medium text-foreground">สแกนทั้งหมด</span>
             </div>
-            <span className="font-bold text-foreground">{scanHistory.length} <span className="text-xs font-normal text-muted-foreground">รายการ</span></span>
+            <span className="font-bold text-foreground">{summary?.scan_count ?? scanHistoryData.length} <span className="text-xs font-normal text-muted-foreground">รายการ</span></span>
           </div>
         </div>
       </div>
@@ -172,7 +181,7 @@ export default function HealthDashboardPage({ scanHistory = [], foodEntries = []
 
         <div className="flex items-center gap-6">
           <div className="w-[110px] h-[110px] relative flex-shrink-0">
-            {totalMacros.protein === 0 && totalMacros.carbs === 0 && totalMacros.fat === 0 ? (
+            {(summary?.macro_totals?.protein ?? totalMacros.protein) === 0 && (summary?.macro_totals?.carbs ?? totalMacros.carbs) === 0 && (summary?.macro_totals?.fat ?? totalMacros.fat) === 0 ? (
               <div className="w-full h-full rounded-full border-4 border-muted flex items-center justify-center">
                 <span className="text-[10px] text-muted-foreground text-center leading-tight">ยังไม่มีข้อมูล</span>
               </div>
@@ -207,11 +216,11 @@ export default function HealthDashboardPage({ scanHistory = [], foodEntries = []
           <Activity className="w-4 h-4 text-primary" />
           <p className="font-bold text-sm text-foreground">ประวัติการสแกนฉลาก</p>
         </div>
-        {scanHistory.length === 0 ? (
+        {scanHistoryData.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground text-sm">ยังไม่มีประวัติสแกนสินค้า</div>
         ) : (
           <ul className="divide-y divide-border/60">
-            {[...scanHistory].reverse().slice(0, 10).map(r => (
+            {[...scanHistoryData].reverse().slice(0, 10).map(r => (
               <li key={r.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
                 <div className="flex-1 min-w-0 mr-3">
                   <p className="text-sm font-semibold text-foreground truncate">{r.productName}</p>

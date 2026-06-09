@@ -17,25 +17,36 @@ export default function Page() {
 
   useEffect(() => {
     const supabase = createClient()
-    
-    // Check initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session) {
-        await fetchUserData(session.user.id)
-        router.push("/dashboard")
-      } else {
-        setLoading(false)
-      }
-    })
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
-        await fetchUserData(session.user.id)
-        router.push("/dashboard")
-      } else {
-        setLoading(false)
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user?.id) {
+        try {
+          await fetchUserData(session.user.id)
+          router.push("/dashboard")
+          return
+        } catch (error) {
+          console.error("Failed to load user data on init:", error)
+        }
       }
+
+      setLoading(false)
+    }
+
+    initAuth()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user?.id) {
+        try {
+          await fetchUserData(session.user.id)
+          router.push("/dashboard")
+          return
+        } catch (error) {
+          console.error("Failed to load user data after auth change:", error)
+        }
+      }
+
+      setLoading(false)
     })
 
     return () => {

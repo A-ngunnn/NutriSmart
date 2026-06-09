@@ -1,0 +1,15 @@
+{
+  "name": "NutriSmart Dev Container",
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend",
+      "onAutoForward": "openBrowser",
+      "visibility": "public"
+    },
+    "8000": {
+      "label": "Backend",
+      "onAutoForward": "openBrowser",
+      "visibility": "public"
+    }
+  }
+}

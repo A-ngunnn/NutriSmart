@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
-
+import { analyzeImageWithBackend, analyzeManualWithBackend } from "@/lib/backend-api"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NutritionData {
@@ -39,27 +39,25 @@ function classifyLevel(value: number, mod: number, danger: number): "safe" | "mo
   return "safe"
 }
 
-function analyze(data: NutritionData): AnalysisResult {
-  const sugarLevel = classifyLevel(data.sugar, 8, 15)
-  const sodiumLevel = classifyLevel(data.sodium, 500, 900)
-  const calorieLevel = classifyLevel(data.calories, 300, 600)
-  const levels = [sugarLevel, sodiumLevel, calorieLevel]
-  const score = Math.max(0, 100 - levels.filter((l) => l === "danger").length * 30 - levels.filter((l) => l === "moderate").length * 10)
+function mapBackendResult(data: { score: number; status: string; warnings: string[]; advice: string }, nutrition: NutritionData): AnalysisResult {
+  const sugarLevel = classifyLevel(nutrition.sugar, 8, 15)
+  const sodiumLevel = classifyLevel(nutrition.sodium, 500, 900)
+  const calorieLevel = classifyLevel(nutrition.calories, 300, 600)
+  const summary = data.status === "safe"
+    ? "ผลิตภัณฑ์ปลอดภัย"
+    : data.status === "moderate"
+      ? "ควรบริโภคในปริมาณพอดี"
+      : "ควรหลีกเลี่ยงหรือบริโภคน้อยมาก"
 
-  const warnings: string[] = []
-  const tips: string[] = []
-
-  if (sugarLevel !== "safe") warnings.push(`น้ำตาล ${data.sugar}g ${sugarLevel === "danger" ? "สูงมาก เกินเกณฑ์ที่แนะนำ" : "ค่อนข้างสูง"}`)
-  if (sodiumLevel !== "safe") warnings.push(`โซเดียม ${data.sodium}mg ${sodiumLevel === "danger" ? "สูงมาก อาจส่งผลต่อความดันโลหิต" : "ค่อนข้างสูง"}`)
-  if (calorieLevel !== "safe") warnings.push(`แคลอรี ${data.calories} kcal ${calorieLevel === "danger" ? "สูงมากต่อมื้อเดียว" : "ค่อนข้างสูง"}`)
-
-  if (warnings.length === 0) tips.push("ผลิตภัณฑ์นี้มีระดับโภชนาการที่ปลอดภัย เหมาะสมสำหรับการบริโภคทั่วไป")
-  tips.push("ควรอ่านฉลากโภชนาการทุกครั้งก่อนรับประทาน")
-  if (sodiumLevel !== "safe") tips.push("ดื่มน้ำให้เพียงพอและลดอาหารเค็มในมื้อถัดไป")
-
-  const summary = score >= 80 ? "ผลิตภัณฑ์ปลอดภัย" : score >= 50 ? "ควรบริโภคในปริมาณพอดี" : "ควรหลีกเลี่ยงหรือบริโภคน้อยมาก"
-
-  return { score, sugarLevel, sodiumLevel, calorieLevel, summary, warnings, tips }
+  return {
+    score: data.score,
+    sugarLevel,
+    sodiumLevel,
+    calorieLevel,
+    summary,
+    warnings: data.warnings || [],
+    tips: data.advice ? [data.advice] : [summary],
+  }
 }
 
 const LEVEL_CONFIG = {
@@ -313,14 +311,28 @@ export default function AnalyzerPage() {
   const set = (k: keyof NutritionData, v: string) =>
     setForm((prev) => ({ ...prev, [k]: k === "productName" ? v : parseFloat(v) || 0 }))
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setHasSaved(false)
-    setTimeout(() => {
-      setResult(analyze(form))
+
+    try {
+      const data = await analyzeManualWithBackend({
+        productName: form.productName,
+        calories: form.calories,
+        protein: form.protein,
+        carbs: form.carbs,
+        totalFat: form.totalFat,
+        sugar: form.sugar,
+        sodium: form.sodium,
+      })
+      setResult(mapBackendResult(data, form))
+    } catch (err) {
+      console.error(err)
+      alert("เกิดข้อผิดพลาดในการวิเคราะห์ กรุณาลองใหม่อีกครั้ง")
+    } finally {
       setLoading(false)
-    }, 600)
+    }
   }
 
   // Handle camera capture
@@ -342,23 +354,12 @@ export default function AnalyzerPage() {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
-  // Real AI OCR scanning using Gemini Vision
+  // Real AI OCR scanning using backend MedGemma + Thai RDI + RAG
   const handleOcrScan = async () => {
     if (!capturedImage) return
     setScanning(true)
     try {
-      const res = await fetch("/api/analyze-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: capturedImage }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        alert(err.error || "ไม่สามารถอ่านข้อมูลจากภาพได้ กรุณาลองใหม่")
-        setScanning(false)
-        return
-      }
-      const data = await res.json()
+      const data = await analyzeImageWithBackend(capturedImage)
       setForm({
         productName: data.productName || "",
         calories: data.calories || 0,
@@ -368,10 +369,19 @@ export default function AnalyzerPage() {
         sugar: data.sugar || 0,
         sodium: data.sodium || 0,
       })
+      setResult(mapBackendResult(data, {
+        productName: data.productName || "",
+        calories: data.calories || 0,
+        protein: data.protein || 0,
+        carbs: data.carbs || 0,
+        totalFat: data.totalFat || 0,
+        sugar: data.sugar || 0,
+        sodium: data.sodium || 0,
+      }))
       setCapturedImage(null)
-      setResult(null) // clear previous result
-    } catch {
-      alert("เกิดข้อผิดพลาด กรุณาลองใหม่")
+    } catch (err) {
+      console.error(err)
+      alert("ไม่สามารถอ่านข้อมูลจากภาพได้ กรุณาลองใหม่")
     } finally {
       setScanning(false)
     }

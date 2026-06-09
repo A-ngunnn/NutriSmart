@@ -11,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
 from services.rag_service import load_knowledge
+from services.storage_service import initialize_storage
 from routers import analyze, chat
+from routers import dashboard, profile, logs, health_api
 
 settings = get_settings()
 
@@ -24,6 +26,8 @@ async def lifespan(app: FastAPI):
     print(f"[INFO] Loading knowledge base from: {settings.knowledge_dir}")
     count = load_knowledge()
     print(f"[OK] Knowledge base ready ({count} items)")
+    print(f"[INFO] Initializing storage at: {settings.storage_db}")
+    initialize_storage()
     yield
     print("[STOP] NutriSmart Backend shutting down.")
 
@@ -40,11 +44,7 @@ app = FastAPI(
 # CORS – allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,6 +53,10 @@ app.add_middleware(
 # ── Register routers ────────────────────────────────────────────────────────
 app.include_router(analyze.router)
 app.include_router(chat.router)
+app.include_router(dashboard.router)
+app.include_router(profile.router)
+app.include_router(logs.router)
+app.include_router(health_api.router)
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

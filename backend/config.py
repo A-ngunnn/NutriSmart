@@ -1,15 +1,20 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    gemini_api_key: str
+    medgemma_api_key: str = ""
+    gemini_api_key: str = ""
     supabase_url: str = ""
     supabase_anon_key: str = ""
     chroma_persist_dir: str = "./chroma_data"
     chroma_collection_name: str = "nutri_knowledge"
-    knowledge_dir: str = "../database/knowledge"
+    knowledge_dir: str = str(Path(__file__).resolve().parents[1] / "database" / "knowledge")
     backend_port: int = 8080
+    medgemma_model: str = "google/gemma-2-9b-it"
+    medgemma_fallback_model: str = "gpt-4o-mini"
+    storage_db: str = str(Path(__file__).resolve().parents[1] / "backend_data" / "nutrismart.db")
 
     class Config:
         env_file = ".env"
