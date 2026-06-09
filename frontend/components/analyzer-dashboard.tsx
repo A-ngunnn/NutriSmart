@@ -65,6 +65,23 @@ const nutrientMeta = {
   fat: { label: "Fat", unit: "g", icon: Cpu, max: RDI.fat },
 }
 
+// ย้ายฟังก์ชัน Label ขึ้นมาด้านบนเพื่อให้ใน AnalyzerDashboard เรียกใช้งานได้ไม่เกิด Error
+function LabelComponent({
+  nutrient,
+  meta,
+}: {
+  nutrient: string
+  meta: { label: string; icon: React.ElementType }
+}) {
+  const Icon = meta.icon
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon className="w-4 h-4 text-muted-foreground" />
+      <span className="text-sm font-medium text-foreground">{meta.label}</span>
+    </div>
+  )
+}
+
 function MetricCard({
   nutrient,
   value,
@@ -102,13 +119,12 @@ function MetricCard({
           {/* progress bar */}
           <div className="h-2 rounded-full bg-white/70 border overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${
-                status === "safe"
+              className={`h-full rounded-full transition-all ${status === "safe"
                   ? "bg-green-500"
                   : status === "warning"
-                  ? "bg-orange-400"
-                  : "bg-red-500"
-              }`}
+                    ? "bg-orange-400"
+                    : "bg-red-500"
+                }`}
               style={{ width: `${Math.min(pct, 100)}%` }}
             />
           </div>
@@ -175,6 +191,19 @@ export function AnalyzerDashboard() {
   const [analyzed, setAnalyzed] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  // 💡 ฟังก์ชันกลาง: อัปเดตข้อมูลสารอาหาร และ สั่งปิดสถานะการสแกนเก่าทันที
+  // เพื่อปลดล็อกให้ระบบยอมรับการสแกนและการกดบันทึกรอบใหม่
+  const updateNutrientValue = (key: keyof NutrientValues, value: number) => {
+    setValues((prev) => ({ ...prev, [key]: value }))
+    setAnalyzed(false)
+  }
+
+  // 💡 ฟังก์ชันเสริม: ถ้าในอนาคตคุณผูกปุ่มอัปโหลดรูปภาพใหม่ภายนอก ให้เรียกใช้ฟังก์ชันนี้
+  const handleNewImageScan = (newScannedValues: NutrientValues) => {
+    setValues(newScannedValues)
+    setAnalyzed(false)
+  }
+
   const handleAnalyze = () => {
     setLoading(true)
     setAnalyzed(false)
@@ -215,16 +244,15 @@ export function AnalyzerDashboard() {
               return (
                 <div key={key} className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label nutrient={key} meta={meta} />
+                    <LabelComponent nutrient={key} meta={meta} />
                     <div className="flex items-center gap-1.5">
                       <input
                         type="number"
                         min={0}
                         max={sliderMax}
                         value={values[key]}
-                        onChange={(e) =>
-                          setValues({ ...values, [key]: Number(e.target.value) })
-                        }
+                        // 💡 เรียกใช้ฟังก์ชันกลางเพื่อเคลียร์ค่าสถานะเก่าออกเมื่อมีการพิมพ์ตัวเลขใหม่
+                        onChange={(e) => updateNutrientValue(key, Number(e.target.value))}
                         className="w-20 text-right text-sm font-semibold border rounded-lg px-2 py-1 bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
                       />
                       <span className="text-xs text-muted-foreground">{meta.unit}</span>
@@ -235,7 +263,8 @@ export function AnalyzerDashboard() {
                     max={sliderMax}
                     step={key === "energy" ? 10 : 1}
                     value={[values[key]]}
-                    onValueChange={([v]) => setValues({ ...values, [key]: v })}
+                    // 💡 เรียกใช้ฟังก์ชันกลางเพื่อเคลียร์ค่าสถานะเก่าออกเมื่อเลื่อน Slider
+                    onValueChange={([v]) => updateNutrientValue(key, v)}
                     className="w-full"
                   />
                   <div className="flex justify-between text-xs text-muted-foreground">
@@ -329,13 +358,12 @@ export function AnalyzerDashboard() {
                 {report.tags.map((tag) => (
                   <span
                     key={tag.label}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
-                      tag.type === "danger"
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${tag.type === "danger"
                         ? "bg-red-50 border-red-200 text-red-600"
                         : tag.type === "safe"
-                        ? "bg-green-50 border-green-200 text-green-700"
-                        : "bg-blue-50 border-blue-200 text-blue-600"
-                    }`}
+                          ? "bg-green-50 border-green-200 text-green-700"
+                          : "bg-blue-50 border-blue-200 text-blue-600"
+                      }`}
                   >
                     {tag.type === "danger" && <AlertTriangle className="w-3 h-3" />}
                     {tag.type === "safe" && <CheckCircle2 className="w-3 h-3" />}
@@ -348,22 +376,6 @@ export function AnalyzerDashboard() {
           </Card>
         </>
       )}
-    </div>
-  )
-}
-
-function Label({
-  nutrient,
-  meta,
-}: {
-  nutrient: string
-  meta: { label: string; icon: React.ElementType }
-}) {
-  const Icon = meta.icon
-  return (
-    <div className="flex items-center gap-1.5">
-      <Icon className="w-4 h-4 text-muted-foreground" />
-      <span className="text-sm font-medium text-foreground">{meta.label}</span>
     </div>
   )
 }

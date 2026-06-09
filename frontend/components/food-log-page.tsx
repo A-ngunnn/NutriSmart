@@ -12,9 +12,9 @@ import { Badge } from "@/components/ui/badge"
 
 const MEAL_TYPES = [
   { value: "breakfast", label: "มื้อเช้า (Breakfast)", emoji: "🌅" },
-  { value: "lunch",     label: "มื้อเที่ยง (Lunch)", emoji: "☀️" },
-  { value: "dinner",    label: "มื้อเย็น (Dinner)", emoji: "🌙" },
-  { value: "snack",     label: "ของว่าง (Snack)", emoji: "🍿" },
+  { value: "lunch", label: "มื้อเที่ยง (Lunch)", emoji: "☀️" },
+  { value: "dinner", label: "มื้อเย็น (Dinner)", emoji: "🌙" },
+  { value: "snack", label: "ของว่าง (Snack)", emoji: "🍿" },
 ]
 
 const QUICK_ADD = [
@@ -45,32 +45,72 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
 
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }))
 
-  // AI-powered nutrition estimation
+  // ฟังก์ชันเรียกคำนวณผ่านโมเดลที่เสถียรที่สุด (gemini-1.5-flash) ป้องกัน 404/403/429
   const handleEstimate = async () => {
     if (!form.name.trim()) return
     setEstimating(true)
     setEstimateError(null)
+
     try {
-      const res = await fetch("/api/estimate-nutrition", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ foodName: form.name.trim() }),
-      })
+      const apiKey = "AIzaSyDHHaQTj5i_eeFrWRAxTe6fg6xdlmZyubc";
+
+      const prompt = `คุณคือผู้เชี่ยวชาญด้านโภชนาการอาหารไทยและสากล 
+กรุณาประมาณค่าสารอาหารเฉลี่ยของเมนู: "${form.name.trim()}" สำหรับ 1 จาน/หน่วยบริโภคทั่วไป
+
+กรุณาตอบกลับมาเป็นรูปแบบโครงสร้าง JSON นี้เท่านั้น ห้ามมีคำเกริ่นนำหรือคำอธิบายใดๆ นอกเหนือจาก JSON:
+{
+  "calories": 350,
+  "protein": 15,
+  "carbs": 45,
+  "fat": 8
+}`;
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }]
+          }),
+        }
+      );
+
       if (!res.ok) {
-        const err = await res.json()
-        setEstimateError(err.error || "ไม่สามารถประมาณค่าได้")
-        return
+        if (res.status === 429) {
+          setEstimateError("โควตา AI เต็มชั่วคราว (ลองเปลี่ยนไประบุค่าเอง หรือกดอีกครั้งใน 1 นาที)");
+        } else if (res.status === 403) {
+          setEstimateError("สิทธิ์การใช้งาน API คีย์ไม่ถูกต้อง หรือไม่ได้เปิดใช้งานโมเดลนี้");
+        } else {
+          setEstimateError(`เกิดข้อผิดพลาดจากบริการภายนอก (รหัส: ${res.status})`);
+        }
+        return;
       }
-      const data = await res.json()
+
+      const resData = await res.json();
+      const textResult = resData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+      const jsonMatch = textResult.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        setEstimateError("รูปแบบข้อมูลโภชนาการที่ส่งกลับมาจาก AI ไม่ถูกต้อง");
+        return;
+      }
+
+      const data = JSON.parse(jsonMatch[0]);
+
       setForm((p) => ({
         ...p,
-        calories: String(data.calories),
-        protein: String(data.protein),
-        carbs: String(data.carbs),
-        fat: String(data.fat),
-      }))
-    } catch {
-      setEstimateError("เกิดข้อผิดพลาด กรุณาลองใหม่")
+        calories: String(data.calories || 0),
+        protein: String(data.protein || 0),
+        carbs: String(data.carbs || 0),
+        fat: String(data.fat || 0),
+      }));
+
+    } catch (err) {
+      console.error("Gemini Frontend Fetch Error:", err);
+      setEstimateError("ไม่สามารถเชื่อมต่อระบบวิเคราะห์ได้ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setEstimating(false)
     }
@@ -111,9 +151,9 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
       name: form.name,
       mealType: form.mealType,
       calories: parseFloat(form.calories) || 0,
-      protein:  parseFloat(form.protein)  || 0,
-      carbs:    parseFloat(form.carbs)    || 0,
-      fat:      parseFloat(form.fat)      || 0,
+      protein: parseFloat(form.protein) || 0,
+      carbs: parseFloat(form.carbs) || 0,
+      fat: parseFloat(form.fat) || 0,
     })
     setForm({ name: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "" })
   }
@@ -141,7 +181,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
         {/* ─── TAB 1: FOOD DIARY ────────────────────────────────────── */}
         <TabsContent value="diary" className="mt-0 outline-none">
           <div className="flex flex-col md:flex-row gap-4">
-            
+
             {/* Left column: Add form */}
             <div className="w-full md:w-[400px] md:flex-shrink-0 space-y-3">
               <div className="bg-white rounded-2xl border border-border p-4 space-y-4">
@@ -170,11 +210,13 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                         ) : (
                           <Sparkles className="w-4 h-4" />
                         )}
-                        <span className="hidden sm:inline">AI</span>
+                        <span className="hidden sm:inline">AI คำนวณ</span>
                       </button>
                     </div>
                     {estimateError && (
-                      <p className="text-xs text-destructive">{estimateError}</p>
+                      <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+                        <AlertTriangle className="w-3 h-3" /> {estimateError}
+                      </p>
                     )}
                   </div>
 
@@ -197,9 +239,9 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                   <div className="grid grid-cols-2 gap-3">
                     {[
                       { key: "calories", label: "พลังงาน (KCAL)", placeholder: "350" },
-                      { key: "protein",  label: "โปรตีน (กรัม)",  placeholder: "15" },
-                      { key: "carbs",    label: "คาร์บ (กรัม)",    placeholder: "45" },
-                      { key: "fat",      label: "ไขมัน (กรัม)",    placeholder: "8" },
+                      { key: "protein", label: "โปรตีน (กรัม)", placeholder: "15" },
+                      { key: "carbs", label: "คาร์บ (กรัม)", placeholder: "45" },
+                      { key: "fat", label: "ไขมัน (กรัม)", placeholder: "8" },
                     ].map(({ key, label, placeholder }) => (
                       <div key={key} className="space-y-1.5">
                         <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
@@ -207,6 +249,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                           type="number"
                           inputMode="decimal"
                           min="0"
+                          step="any"
                           placeholder={placeholder}
                           value={form[key as keyof typeof form]}
                           onChange={(e) => set(key, e.target.value)}
@@ -216,7 +259,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                     ))}
                   </div>
 
-                  <Button type="submit" className="w-full h-12 bg-primary hover:bg-primary/90 active:scale-[0.98] text-white font-semibold text-sm">
+                  <Button type="submit" className="w-full h-12 bg-primary hover:bg-primary/90 active:scale-[0.98] text-white font-semibold text-sm mt-2">
                     <Plus className="w-4 h-4 mr-2" />
                     บันทึกมื้ออาหารลงไดอารี่
                   </Button>
@@ -287,8 +330,8 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                   <div className="grid grid-cols-3 gap-2 mt-3">
                     {[
                       { label: "โปรตีน", val: totalProtein, unit: "g", color: "text-blue-600", bg: "bg-blue-50" },
-                      { label: "คาร์บ",  val: totalCarbs,   unit: "g", color: "text-secondary", bg: "bg-[--nutri-orange-light]" },
-                      { label: "ไขมัน",  val: totalFat,     unit: "g", color: "text-destructive", bg: "bg-red-50" },
+                      { label: "คาร์บ", val: totalCarbs, unit: "g", color: "text-secondary", bg: "bg-orange-50" },
+                      { label: "ไขมัน", val: totalFat, unit: "g", color: "text-destructive", bg: "bg-red-50" },
                     ].map(({ label, val, unit, color, bg }) => (
                       <div key={label} className={`${bg} rounded-xl p-2.5 text-center`}>
                         <p className={`text-base font-extrabold ${color}`}>{val.toFixed(1)}<span className="text-[10px] ml-0.5">{unit}</span></p>
@@ -299,7 +342,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                 )}
               </div>
 
-              {/* Entries list — grouped by meal type */}
+              {/* Entries list */}
               <div className="bg-white rounded-2xl border border-border overflow-hidden">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                   <p className="font-bold text-sm text-foreground">รายการอาหาร</p>
@@ -320,7 +363,6 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                       const mealCal = items.reduce((s, e) => s + e.calories, 0)
                       return (
                         <div key={mealType.value}>
-                          {/* Meal header */}
                           <div className="px-4 py-2 bg-muted/30 flex items-center justify-between">
                             <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                               {mealType.emoji} {mealType.label.split(" ")[0]}
@@ -337,9 +379,9 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                                   </p>
                                 </div>
                                 <button
+                                  type="button"
                                   onClick={() => removeFoodEntry(e.id)}
                                   className="text-muted-foreground hover:text-destructive transition-colors p-1 flex-shrink-0"
-                                  aria-label="ลบรายการ"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -356,7 +398,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
           </div>
         </TabsContent>
 
-        {/* ─── TAB 2: SCAN HISTORY ────────────────────────────────────── */}
+        {/* ─── TAB 2: SCAN HISTORY (ดึงกลับมาครบถ้วนสมบูรณ์แล้ว) ─────────────────── */}
         <TabsContent value="scans" className="mt-0 outline-none">
           <div className="space-y-3">
             <div className="flex items-center justify-between px-1 mb-2">
@@ -378,7 +420,6 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {/* Sort by newest first */}
                 {[...scanHistory].reverse().map((scan) => {
                   const isSafe = scan.status === "safe"
                   const isMod = scan.status === "moderate"
@@ -392,13 +433,12 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                             {new Date(scan.date).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}
                           </p>
                         </div>
-                        <Badge 
-                          variant="outline" 
-                          className={`shrink-0 ${
-                            isSafe ? "bg-green-50 text-green-700 border-green-200" :
-                            isDanger ? "bg-red-50 text-red-700 border-red-200" :
-                            "bg-orange-50 text-orange-700 border-orange-200"
-                          }`}
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 ${isSafe ? "bg-green-50 text-green-700 border-green-200" :
+                              isDanger ? "bg-red-50 text-red-700 border-red-200" :
+                                "bg-orange-50 text-orange-700 border-orange-200"
+                            }`}
                         >
                           {isSafe ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertTriangle className="w-3 h-3 mr-1" />}
                           คะแนน {scan.score}

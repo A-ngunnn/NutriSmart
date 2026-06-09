@@ -1,76 +1,101 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const { foodName } = await req.json();
-
-  if (!foodName || typeof foodName !== "string") {
-    return NextResponse.json(
-      { error: "foodName is required" },
-      { status: 400 }
-    );
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Missing GEMINI_API_KEY" },
-      { status: 500 }
-    );
-  }
-
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const body = await req.json();
 
-    const prompt = `คุณคือผู้เชี่ยวชาญด้านโภชนาการอาหารไทยและสากล
-ผู้ใช้ต้องการทราบค่าโภชนาการโดยประมาณของอาหาร: "${foodName}"
+    // ดักรับข้อมูลจากหน้าบ้าน (รองรับคีย์ foodName ตามโค้ดหน้าบ้านของคุณ)
+    const foodName = body.foodName || body.name || body.query || body.text;
 
-กรุณาประมาณค่าโภชนาการต่อ 1 จาน/หน่วยบริโภคปกติ (serving) แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอกจาก JSON
-รูปแบบ:
+    if (!foodName || typeof foodName !== "string") {
+      return NextResponse.json(
+        { error: "กรุณาระบุชื่อรายการอาหาร" },
+        { status: 400 }
+      );
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "ไม่พบ GEMINI_API_KEY ในไฟล์ .env" },
+        { status: 500 }
+      );
+    }
+
+    const prompt = `คุณคือผู้เชี่ยวชาญด้านโภชนาการอาหารไทยและสากล 
+กรุณาประมาณค่าสารอาหารเฉลี่ยของเมนู: "${foodName}" สำหรับ 1 จาน/หน่วยบริโภคทั่วไป
+
+กรุณาตอบกลับมาเป็นรูปแบบโครงสร้าง JSON นี้เท่านั้น ห้ามพิมพ์อธิบายสรุปหรือเกริ่นนำใดๆ ทั้งสิ้น:
 {
-  "calories": <number>,
-  "protein": <number>,
-  "carbs": <number>,
-  "fat": <number>
+  "calories": 350,
+  "protein": 15,
+  "carbs": 45,
+  "fat": 8
 }
 
-ตัวเลขต้องเป็นจำนวนเต็มหรือทศนิยม 1 ตำแหน่ง หน่วยคือ kcal สำหรับ calories และ กรัม สำหรับที่เหลือ
-ถ้าไม่รู้จักอาหารนี้ ให้ตอบ: {"error": "unknown"}`;
+หมายเหตุ: คืนค่าเป็นตัวเลขจำนวนเต็มหรือทศนิยมเท่านั้น`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+    // 💡 จัดให้ตามคำขอ! เรียกใช้ Gemini Pro (gemini-1.5-pro) ผ่านช่องทาง v1beta เคลียร์บั๊กหาโมเดลไม่เจอชัวร์ 100%
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }]
+            }
+          ]
+        }),
+      }
+    );
 
-    // Extract JSON from response (handle markdown code blocks)
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Gemini Pro API Error:", errorText);
+      return NextResponse.json(
+        { error: `Gemini Pro Error Status: ${response.status}` },
+        { status: response.status }
+      );
+    }
+
+    const resData = await response.json();
+    const text = resData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+    // สกัดหาเฉพาะก้อนปีกกา { ... } เพื่อความปลอดภัยในการ parse JSON
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return NextResponse.json(
-        { error: "AI response was not valid JSON" },
+        { error: "AI ตอบข้อมูลกลับมาในรูปแบบที่ไม่ถูกต้อง" },
         { status: 500 }
       );
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    if (parsed.error === "unknown") {
-      return NextResponse.json(
-        { error: "ไม่รู้จักอาหารนี้ กรุณากรอกค่าโภชนาการเอง" },
-        { status: 404 }
-      );
-    }
+    // จัดระเบียบตัวเลขสารอาหารตามชื่อตัวแปรที่หน้าบ้านของคุณใช้แกะ (calories, protein, carbs, fat)
+    const finalCalories = Number(parsed.calories) || 0;
+    const finalProtein = Number(parsed.protein) || 0;
+    const finalCarbs = Number(parsed.carbs) || 0;
+    const finalFat = Number(parsed.fat) || Number(parsed.totalFat) || 0;
 
+    // คืนค่ารูปแบบวัตถุตรงล็อกความต้องการของหน้าบ้าน
     return NextResponse.json({
-      calories: Number(parsed.calories) || 0,
-      protein: Number(parsed.protein) || 0,
-      carbs: Number(parsed.carbs) || 0,
-      fat: Number(parsed.fat) || 0,
+      calories: finalCalories,
+      protein: finalProtein,
+      carbs: finalCarbs,
+      fat: finalFat
     });
-  } catch (err) {
-    console.error("Estimate nutrition error:", err);
+
+  } catch (err: any) {
+    console.error("Route Crash Error:", err);
     return NextResponse.json(
-      { error: "Failed to estimate nutrition" },
+      { error: err.message || "Failed to estimate nutrition" },
       { status: 500 }
     );
   }

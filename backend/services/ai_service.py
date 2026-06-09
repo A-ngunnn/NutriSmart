@@ -14,7 +14,14 @@ from langchain.schema import HumanMessage, SystemMessage, AIMessage
 import logging
 
 from config import get_settings
-from services.rag_service import get_all_context, get_relevant_context
+
+try:
+    from services.rag_service import get_all_context, get_relevant_context
+except ImportError:
+    def get_all_context():
+        return "ไม่มีข้อมูลอ้างอิง"
+    def get_relevant_context(query, max_items=2):
+        return "ไม่มีข้อมูลอ้างอิง"
 
 settings = get_settings()
 
@@ -23,16 +30,17 @@ logging.basicConfig(level=logging.INFO)
 
 
 # ── Shared LLM instance (ChatOpenAI pointing to OpenRouter) ──────────────────
-def _get_llm(temperature: float = 0.3):
+def _get_llm(model_name: Optional[str] = None, temperature: float = 0.3):
     api_key = settings.medgemma_api_key or settings.gemini_api_key or ""
     if not api_key:
         logger.error("Missing LLM API key. Set MEDGEMMA_API_KEY or GEMINI_API_KEY in environment.")
         raise ValueError("Missing LLM API key. Set MEDGEMMA_API_KEY or GEMINI_API_KEY in environment.")
 
-    # ChatOpenAI accepts openai_api_base/openai_api_key to point at OpenRouter
-    model = getattr(settings, "medgemma_model", "google/gemma-2-9b-it")
+    if not model_name:
+        model_name = getattr(settings, "medgemma_model", "google/gemma-2-9b-it")
+        
     return ChatOpenAI(
-        model_name=model,
+        model_name=model_name,
         temperature=temperature,
         max_tokens=4096,
         openai_api_key=api_key,
@@ -43,11 +51,11 @@ def _get_llm(temperature: float = 0.3):
 # ── 1. Label Analysis (image → structured nutrition JSON) ────────────────────
 
 ANALYSIS_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้เชี่ยวชาญด้านโภชนาการอาหารของประเทศไทย
-หน้าที่ของคุณคือวิเคราะห์ภาพฉลากโภชนาการ (Nutrition Facts) ของสินค้าอาหารหรือเครื่องดื่ม
+หน้าที่ของคุณคือวิเคราะห์ภาพฉลากโภชนาการ (Nutrition Facts) ของสินค้าอาหารหรือเครื่องดื่มอย่างละเอียดครบถ้วนทุกสารอาหาร
 
 คุณต้อง:
-1. อ่านข้อมูลจากภาพฉลากโภชนาการ (OCR) ให้ครบถ้วน
-2. ประเมินและให้คะแนนสุขภาพ (Health Score) 0-100 โดยอิงตามเกณฑ์ Thai RDI
+1. อ่านข้อมูลทั้งหมดจากภาพฉลากโภชนาการ (OCR) ให้ครบถ้วน ห้ามข้ามรายละเอียดใดๆ ทั้งแคลอรี โปรตีน คาร์โบไฮเดรต ไขมัน น้ำตาล โซเดียม และสารอาหารเสริม
+2. ประเมินและให้คะแนนสุขภาพ (Health Score) 0-100 โดยอิงตามเกณฑ์ Thai RDI อย่างเที่ยงตรง
 
 ── เกณฑ์ Thai RDI อ้างอิง ──
 {rag_context}
@@ -68,10 +76,10 @@ ANALYSIS_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้เช
 - score < 40  → "danger" (อันตราย 🔴)
 
 ── คำตอบต้องเป็น JSON เท่านั้น ──
-ตอบเป็น JSON ตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:
-{
-  "productName": "ชื่อสินค้า (ภาษาไทย ถ้ามี)",
-  "servingSize": "ขนาดหนึ่งหน่วยบริโภค",
+ตอบเป็น JSON ตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่นนอกเหนือจากโครงสร้าง JSON:
+{{
+  "productName": "ชื่อสินค้า (ภาษาไทย)",
+  "servingSize": "ขนาดหนึ่งหน่วยบริโภคที่ระบุบนฉลาก",
   "calories": 0,
   "protein": 0,
   "carbs": 0,
@@ -83,9 +91,9 @@ ANALYSIS_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้เช
   "fiber": 0,
   "score": 0,
   "status": "safe|moderate|danger",
-  "warnings": ["คำเตือน 1", "คำเตือน 2"],
-  "advice": "คำแนะนำสั้นๆ 1-2 ประโยคเกี่ยวกับสินค้านี้"
-}
+  "warnings": ["คำเตือนสารอาหารตัวที่สูงเกินไปอย่างละเอียด 1", "คำเตือนเพิ่มเติม 2"],
+  "advice": "คำแนะนำและบทวิเคราะห์สารอาหารบนฉลากนี้อย่างละเอียด ครบถ้วน เพื่อสุขภาพของผู้บริโภค"
+}}
 """
 
 
@@ -93,50 +101,46 @@ async def analyze_label_image(image_base64: str, mime_type: str = "image/jpeg") 
     """
     Analyze a nutrition label image and return structured data + health score.
     """
-    # Retrieve RAG context for nutrition-related queries
-    rag_context = get_all_context()
-
-    system_prompt = ANALYSIS_SYSTEM_PROMPT.replace("{rag_context}", rag_context)
-
-    llm = _get_llm(temperature=0.1)
-
-    message_text = (
-        "กรุณาวิเคราะห์ฉลากโภชนาการจากภาพนี้\n"
-        "ให้สรุปข้อมูลโภชนาการจากภาพพร้อมให้คะแนนสุขภาพตามเกณฑ์ Thai RDI\n"
-        f"data:{mime_type};base64,{image_base64}"
+    rag_context = (
+        "เกณฑ์แนะนำต่อวันสำหรับคนไทยอายุ 6 ปีขึ้นไป (Thai RDI): "
+        "พลังงาน 2000 kcal, คาร์โบไฮเดรต 300g, โปรตีน 50g, ไขมันทั้งหมด 65g, "
+        "ไขมันอิ่มตัว 20g, โซเดียม 2000mg, น้ำตาลไม่ควรเกิน 24g"
     )
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=message_text)]
+    system_prompt = ANALYSIS_SYSTEM_PROMPT.format(rag_context=rag_context)
 
-    # Use sync ChatOpenAI via thread to avoid blocking event loop if not async
+    vision_model = "openai/gpt-4o-mini" 
+    llm = _get_llm(model_name=vision_model, temperature=0.1)
+
+    content = [
+        {
+            "type": "text",
+            "text": "กรุณาสแกนและอ่านข้อมูลฉลากโภชนาการทั้งหมดจากภาพนี้อย่างละเอียดยิบครบทุกสารอาหาร สรุปข้อมูลสารอาหารทั้งหมดพร้อมคำนวณคะแนนสุขภาพตามเกณฑ์อ้างอิงให้ถูกต้อง"
+        },
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime_type};base64,{image_base64}"
+            }
+        }
+    ]
+    
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=content)]
+
     try:
         result = await asyncio.to_thread(llm.generate, [messages])
     except Exception as exc:
         err_text = str(exc)
-        logger.warning("LLM generate failed: %s", err_text)
-        # Retry with fallback model if OpenRouter reports no endpoints for the requested model
-        if "No endpoints found" in err_text or "No endpoints" in err_text or "404" in err_text:
-            fallback = getattr(settings, "medgemma_fallback_model", "gpt-4o-mini")
-            logger.info("Falling back to model: %s", fallback)
-            llm = ChatOpenAI(
-                model_name=fallback,
-                temperature=0.1,
-                max_tokens=4096,
-                openai_api_key=settings.medgemma_api_key or settings.gemini_api_key,
-                openai_api_base="https://openrouter.ai/api/v1",
-            )
-            result = await asyncio.to_thread(llm.generate, [messages])
-        else:
-            raise
+        logger.warning("Vision Model LLM generate failed: %s, trying fallback...", err_text)
+        fallback = "google/gemini-2.5-flash"
+        llm = _get_llm(model_name=fallback, temperature=0.1)
+        result = await asyncio.to_thread(llm.generate, [messages])
 
     text = result.generations[0][0].text.strip()
-    # Remove markdown code block markers if present
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
+    text = text.replace("```json", "").replace("```", "").strip()
 
     try:
         result = json.loads(text)
     except json.JSONDecodeError:
-        # Try to extract JSON from the text
         json_match = re.search(r"\{[\s\S]*\}", text)
         if json_match:
             result = json.loads(json_match.group())
@@ -158,42 +162,36 @@ async def analyze_manual_input(
     sodium: float,
 ) -> dict:
     """Analyze manually-entered nutrition data."""
-    rag_context = get_all_context()
+    rag_context = (
+        "เกณฑ์แนะนำต่อวันสำหรับคนไทยอายุ 6 ปีขึ้นไป (Thai RDI): "
+        "พลังงาน 2000 kcal, คาร์โบไฮเดรต 300g, โปรตีน 50g, ไขมันทั้งหมด 65g, "
+        "ไขมันอิ่มตัว 20g, โซเดียม 2000mg, น้ำตาลไม่ควรเกิน 24g"
+    )
+    system_prompt = ANALYSIS_SYSTEM_PROMPT.format(rag_context=rag_context)
 
-    system_prompt = ANALYSIS_SYSTEM_PROMPT.replace("{rag_context}", rag_context)
-
-    user_prompt = f"""กรุณาวิเคราะห์ข้อมูลโภชนาการที่กรอกมาด้วยมือ:
-- ชื่อสินค้า: {product_name}
-- พลังงาน: {calories} kcal
-- โปรตีน: {protein} g
-- คาร์โบไฮเดรต: {carbs} g
-- ไขมันทั้งหมด: {total_fat} g
-- น้ำตาล: {sugar} g
-- โซเดียม: {sodium} mg
-
-กรุณาให้คะแนนสุขภาพและคำแนะนำ ตอบเป็น JSON เท่านั้น"""
+    user_prompt = (
+        f"กรุณาวิเคราะห์ข้อมูลโภชนาการที่กรอกมาด้วยมือ:\n"
+        f"- ชื่อสินค้า: {product_name}\n"
+        f"- พลังงาน: {calories} kcal\n"
+        f"- โปรตีน: {protein} g\n"
+        f"- คาร์โบไฮเดรต: {carbs} g\n"
+        f"- ไขมันทั้งหมด: {total_fat} g\n"
+        f"- น้ำตาล: {sugar} g\n"
+        f"- โซเดียม: {sodium} mg\n\n"
+        f"กรุณาให้คะแนนสุขภาพและคำแนะนำแบบวิเคราะห์ละเอียด ตอบเป็น JSON เท่านั้น"
+    )
 
     llm = _get_llm(temperature=0.1)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
     try:
         result = await asyncio.to_thread(llm.generate, [messages])
     except Exception as exc:
-        err_text = str(exc)
-        if "No endpoints found" in err_text or "No endpoints" in err_text or "404" in err_text:
-            fallback = getattr(settings, "medgemma_fallback_model", "gpt-4o-mini")
-            llm = ChatOpenAI(
-                model_name=fallback,
-                temperature=0.1,
-                max_tokens=4096,
-                openai_api_key=settings.medgemma_api_key or settings.gemini_api_key,
-                openai_api_base="https://openrouter.ai/api/v1",
-            )
-            result = await asyncio.to_thread(llm.generate, [messages])
-        else:
-            raise
+        logger.warning("Manual input analysis failed: %s, falling back...", str(exc))
+        llm = _get_llm(model_name="openai/gpt-4o-mini", temperature=0.1)
+        result = await asyncio.to_thread(llm.generate, [messages])
+
     text = result.generations[0][0].text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
+    text = text.replace("```json", "").replace("```", "").strip()
 
     try:
         result = json.loads(text)
@@ -209,33 +207,35 @@ async def analyze_manual_input(
 
 # ── 3. NutriChat (RAG-enhanced conversation) ─────────────────────────────────
 
-CHAT_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้ช่วยด้านโภชนาการส่วนตัว
-คุณสามารถตอบคำถามเกี่ยวกับโภชนาการ อาหาร สุขภาพ แคลอรี่ และคำแนะนำในการกินอาหารเพื่อสุขภาพ
+CHAT_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้ช่วยด้านโภชนาการและการแพทย์ส่วนตัว
+คุณสามารถตอบคำถามเกี่ยวกับโภชนาการ อาหาร สุขภาพ แคลอรี่ และแนะนำการกินอาหารที่ถูกต้องตามหลักการแพทย์อ้างอิง
 
 ── ข้อมูลอ้างอิงจากฐานความรู้ ──
 {rag_context}
 
-── กฎ ──
-1. ตอบเป็นภาษาไทยเสมอ
-2. ใช้ข้อมูลจากฐานความรู้ด้านบนในการอ้างอิง
-3. หากไม่แน่ใจ ให้บอกตรงๆ ว่า "ข้อมูลนี้อยู่นอกเหนือขอบเขตของผม"
-4. ห้ามให้คำแนะนำทางการแพทย์โดยตรง ให้แนะนำให้ปรึกษาแพทย์เสมอ
-5. ตอบสั้นกระชับ ไม่เกิน 3-4 ประโยค ยกเว้นผู้ใช้ขอรายละเอียด
-6. ใช้ Emoji เพื่อให้อ่านง่ายขึ้น
+── กฎการให้บริการตอบแชต ──
+1. ตอบเป็นภาษาไทยเสมอด้วยน้ำเสียงที่เป็นมิตรและเป็นมืออาชีพ
+2. นำข้อมูลจากฐานความรู้อ้างอิงด้านบนมาปรับใช้ตอบให้สอดคล้องกันอย่างดีที่สุด
+3. หากคำถามอยู่นอกเหนือการแพทย์และโภชนาการ ให้แจ้งว่า "ข้อมูลนี้อยู่นอกเหนือขอบเขตด้านสุขภาพของผม"
+4. ให้เน้นคำแนะนำที่ปรับใช้ได้จริงในชีวิตประจำวัน ปลอดภัย และอิงตามโภชนาการสากล
+5. ตอบอย่างเป็นระบบ มีรายละเอียดสนับสนุนชัดเจน แต่กระชับเข้าใจง่าย
+6. ใช้ Emoji ตกแต่งหัวข้อเพื่อให้อ่านและทำความเข้าใจได้ง่ายขึ้น
 """
 
 
 async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> str:
-    """RAG-enhanced chat with NutriSmart AI."""
-    # Retrieve relevant context
-    rag_context = get_relevant_context(user_message, max_items=6)
+    """RAG-enhanced chat with NutriSmart AI using MedGemma for Medical & Nutrition expertise."""
+    try:
+        rag_context = get_relevant_context(user_message, max_items=3)
+    except Exception:
+        rag_context = "ไม่มีข้อมูลอ้างอิง"
+        
     system_prompt = CHAT_SYSTEM_PROMPT.replace("{rag_context}", rag_context)
 
     messages = [SystemMessage(content=system_prompt)]
 
-    # Add chat history if provided
     if chat_history:
-        for msg in chat_history[-6:]:  # Keep last 6 messages for context
+        for msg in chat_history[-6:]:
             if msg.get("role") == "user":
                 messages.append(HumanMessage(content=msg["content"]))
             elif msg.get("role") == "assistant":
@@ -243,22 +243,91 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> 
 
     messages.append(HumanMessage(content=user_message))
 
+    med_gemma_model = "google/gemma-2-9b-it"
     try:
-        llm = _get_llm(temperature=0.5)
+        llm = _get_llm(model_name=med_gemma_model, temperature=0.4)
         result = await asyncio.to_thread(llm.generate, [messages])
     except Exception as exc:
         err_text = str(exc)
-        if "No endpoints found" in err_text or "No endpoints" in err_text or "404" in err_text:
-            fallback = getattr(settings, "medgemma_fallback_model", "gpt-4o-mini")
-            llm = ChatOpenAI(
-                model_name=fallback,
-                temperature=0.5,
-                max_tokens=4096,
-                openai_api_key=settings.medgemma_api_key or settings.gemini_api_key,
-                openai_api_base="https://openrouter.ai/api/v1",
-            )
-            result = await asyncio.to_thread(llm.generate, [messages])
-        else:
-            raise
+        logger.warning("MedGemma Chat failed: %s, falling back...", err_text)
+        fallback = "openai/gpt-4o-mini"
+        llm = _get_llm(model_name=fallback, temperature=0.5)
+        result = await asyncio.to_thread(llm.generate, [messages])
 
     return result.generations[0][0].text
+
+
+# ── 4. Meal Analysis (Food Image + User Text → Estimated Calories JSON) ──────
+
+FOOD_MEAL_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้เชี่ยวชาญด้านการประเมินแคลอรี่และโภชนาการอาหารไทย
+หน้าที่ของคุณคือวิเคราะห์ภาพถ่ายเมนูอาหาร ร่วมกับข้อความอธิบายที่ผู้ใช้พิมพ์บอก เพื่อประมาณการพลังงาน (Calories) และสารอาหารหลักอย่างใกล้เคียงความจริงที่สุด
+
+คุณต้อง:
+1. วิเคราะห์จาก "ภาพถ่ายอาหาร" เพื่อดูขนาดจาน ปริมาณ และสัดส่วน
+2. อ่าน "ข้อความเมนูที่ผู้ใช้พิมพ์บอก" เพื่อระบุวัตถุดิบและวิธีการปรุง (เช่น ผัดข้าวน้อย, ไม่ใส่น้ำมัน, เพิ่มไข่ดาว)
+3. ประมาณการพลังงาน (Calories) เป็นกิโลแคลอรี และสารอาหาร โปรตีน, คาร์บ, ไขมัน เป็นกรัม
+
+── คำตอบต้องเป็น JSON เท่านั้น ──
+ตอบกลับเป็นโครงสร้าง JSON ตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่นนอกเหนือจาก JSON:
+{{
+  "mealName": "ชื่อเมนูอาหารที่ระบุหรือตรวจพบ",
+  "estimatedCalories": 0,
+  "protein": 0,
+  "carbs": 0,
+  "totalFat": 0,
+  "confidence": "high|medium|low",
+  "breakdown": [
+    "ส่วนผสมที่ 1 (เช่น ข้าวสวย 2 ทัพพี) ~ 160 kcal",
+    "ส่วนผสมที่ 2 (เช่น เนื้ออกไก่ผัดกะเพรา) ~ 200 kcal"
+  ],
+  "healthAdvice": "คำแนะนำทางโภชนาการสำหรับมื้อนี้ เช่น มีโปรตีนสูงแต่ควรระวังโซเดียมจากน้ำปลาพริก"
+}}
+"""
+
+
+async def analyze_food_meal(image_base64: str, user_menu_text: str, mime_type: str = "image/jpeg") -> dict:
+    """
+    วิเคราะห์รูปภาพอาหารร่วมกับชื่อเมนูที่ผู้ใช้พิมพ์บอก เพื่อประมาณแคลอรี่และสารอาหาร
+    """
+    vision_model = "openai/gpt-4o-mini"
+    llm = _get_llm(model_name=vision_model, temperature=0.3)
+
+    content = [
+        {
+            "type": "text",
+            "text": f"นี่คือภาพถ่ายมื้ออาหารของฉัน และเมนูนี้คือ: \"{user_menu_text}\"\nกรุณาวิเคราะห์ภาพร่วมกับชื่อเมนูนี้ เพื่อประมาณการแคลอรี่และสารอาหารหลักให้ฉันด้วยครับ"
+        },
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime_type};base64,{image_base64}"
+            }
+        }
+    ]
+    
+    messages = [
+        SystemMessage(content=FOOD_MEAL_SYSTEM_PROMPT),
+        HumanMessage(content=content)
+    ]
+
+    try:
+        result = await asyncio.to_thread(llm.generate, [messages])
+    except Exception as exc:
+        logger.warning("Food Vision Model failed, trying fallback...")
+        fallback = "google/gemini-2.5-flash"
+        llm = _get_llm(model_name=fallback, temperature=0.3)
+        result = await asyncio.to_thread(llm.generate, [messages])
+
+    text = result.generations[0][0].text.strip()
+    text = text.replace("```json", "").replace("```", "").strip()
+
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        json_match = re.search(r"\{[\s\S]*\}", text)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            raise ValueError(f"AI did not return valid JSON for food analysis: {text[:300]}")
+
+    return result

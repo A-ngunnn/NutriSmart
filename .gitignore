@@ -68,3 +68,6 @@ Thumbs.db
 
 # Local backups
 *.json.bak
+
+# SUPABASE
+.supabase

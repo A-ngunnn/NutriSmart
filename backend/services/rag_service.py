@@ -64,12 +64,13 @@ def get_all_context() -> str:
         return "ไม่มีข้อมูลอ้างอิง"
 
     parts = []
+    # 🌟 ปล่อยให้ดึงบทความความรู้ทั้งหมด เพื่อความแม่นยำสูงสุดในการเทียบเคียง RDI ไทย
     for item in items:
         parts.append(f"- {item['topic']}: {item['content']}")
     return "\n".join(parts)
 
 
-def get_relevant_context(query: str, max_items: int = 6) -> str:
+def get_relevant_context(query: str, max_items: int = 10) -> str:
     """
     Simple keyword-based retrieval.
     Returns knowledge items that share keywords with the query.
@@ -92,7 +93,7 @@ def get_relevant_context(query: str, max_items: int = 6) -> str:
     # Sort by score descending
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    # Take top items with score > 0, or all if none match
+    # 🌟 ปรับโควตาเพิ่มขึ้นเป็น 10 รายการ เพื่อส่งข้อมูลอ้างอิงประกอบการอ่านฉลากแบบละเอียด
     relevant = [item for score, item in scored[:max_items] if score > 0]
     if not relevant:
         relevant = [item for _, item in scored[:max_items]]
