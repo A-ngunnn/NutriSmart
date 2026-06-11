@@ -47,74 +47,52 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
 
   // ฟังก์ชันเรียกคำนวณผ่านโมเดลที่เสถียรที่สุด (gemini-1.5-flash) ป้องกัน 404/403/429
   const handleEstimate = async () => {
-    if (!form.name.trim()) return
-    setEstimating(true)
-    setEstimateError(null)
+    if (!form.name.trim()) return;
+
+    setEstimating(true);
+    setEstimateError(null);
 
     try {
-      const apiKey = "AIzaSyDHHaQTj5i_eeFrWRAxTe6fg6xdlmZyubc";
-
-      const prompt = `คุณคือผู้เชี่ยวชาญด้านโภชนาการอาหารไทยและสากล 
-กรุณาประมาณค่าสารอาหารเฉลี่ยของเมนู: "${form.name.trim()}" สำหรับ 1 จาน/หน่วยบริโภคทั่วไป
-
-กรุณาตอบกลับมาเป็นรูปแบบโครงสร้าง JSON นี้เท่านั้น ห้ามมีคำเกริ่นนำหรือคำอธิบายใดๆ นอกเหนือจาก JSON:
-{
-  "calories": 350,
-  "protein": 15,
-  "carbs": 45,
-  "fat": 8
-}`;
-
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/analyze/manual`,
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
+            food_name: form.name.trim(),
           }),
         }
       );
 
       if (!res.ok) {
         if (res.status === 429) {
-          setEstimateError("โควตา AI เต็มชั่วคราว (ลองเปลี่ยนไประบุค่าเอง หรือกดอีกครั้งใน 1 นาที)");
-        } else if (res.status === 403) {
-          setEstimateError("สิทธิ์การใช้งาน API คีย์ไม่ถูกต้อง หรือไม่ได้เปิดใช้งานโมเดลนี้");
+          setEstimateError("AI กำลังมีผู้ใช้งานจำนวนมาก กรุณาลองใหม่อีกครั้ง");
+        } else if (res.status === 404) {
+          setEstimateError("ไม่พบบริการวิเคราะห์อาหาร");
         } else {
-          setEstimateError(`เกิดข้อผิดพลาดจากบริการภายนอก (รหัส: ${res.status})`);
+          setEstimateError(`เกิดข้อผิดพลาด (${res.status})`);
         }
         return;
       }
 
-      const resData = await res.json();
-      const textResult = resData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      const data = await res.json();
 
-      const jsonMatch = textResult.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        setEstimateError("รูปแบบข้อมูลโภชนาการที่ส่งกลับมาจาก AI ไม่ถูกต้อง");
-        return;
-      }
-
-      const data = JSON.parse(jsonMatch[0]);
-
-      setForm((p) => ({
-        ...p,
-        calories: String(data.calories || 0),
-        protein: String(data.protein || 0),
-        carbs: String(data.carbs || 0),
-        fat: String(data.fat || 0),
+      setForm((prev) => ({
+        ...prev,
+        calories: String(data.calories ?? 0),
+        protein: String(data.protein ?? 0),
+        carbs: String(data.carbs ?? 0),
+        fat: String(data.fat ?? 0),
       }));
-
     } catch (err) {
-      console.error("Gemini Frontend Fetch Error:", err);
+      console.error("Estimate Error:", err);
       setEstimateError("ไม่สามารถเชื่อมต่อระบบวิเคราะห์ได้ กรุณาลองใหม่อีกครั้ง");
     } finally {
-      setEstimating(false)
+      setEstimating(false);
     }
-  }
+  };
 
   // Filter today's entries
   const todayKey = new Date().toISOString().slice(0, 10)
@@ -436,8 +414,8 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                         <Badge
                           variant="outline"
                           className={`shrink-0 ${isSafe ? "bg-green-50 text-green-700 border-green-200" :
-                              isDanger ? "bg-red-50 text-red-700 border-red-200" :
-                                "bg-orange-50 text-orange-700 border-orange-200"
+                            isDanger ? "bg-red-50 text-red-700 border-red-200" :
+                              "bg-orange-50 text-orange-700 border-orange-200"
                             }`}
                         >
                           {isSafe ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertTriangle className="w-3 h-3 mr-1" />}
