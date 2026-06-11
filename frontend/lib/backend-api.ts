@@ -1,23 +1,38 @@
 /**
  * NutriSmart API Client
- * Calls Python FastAPI Backend (port 8080) for AI analysis, chat, and app data.
+ * Calls Python FastAPI Backend for AI analysis, chat, and app data.
  */
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") || "";
+// 1. ดึงค่าจาก Environment Variables (ดักไว้ทุกคีย์ที่อาจเป็นไปได้)
+const ENVIRONMENT_BACKEND_URL = (
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  ""
+).replace(/\/$/, "");
 
-function getBackendUrl() {
-  if (BACKEND_URL) {
-    return BACKEND_URL
+// 2. ฟังก์ชันคำนวณ URL ปลายทางอย่างแม่นยำ แยก Production และ Localhost เด็ดขาด
+function getBackendUrl(): string {
+  // ถ้าตั้งค่าใน Vercel/Environment ไว้ชัดเจน และไม่ใช่การรันในเครื่องตัวเอง ให้ใช้ค่านั้นทันที
+  if (ENVIRONMENT_BACKEND_URL && !ENVIRONMENT_BACKEND_URL.includes("localhost") && !ENVIRONMENT_BACKEND_URL.includes("127.0.0.1")) {
+    return ENVIRONMENT_BACKEND_URL;
   }
 
+  // เช็กสภาพแวดล้อมบน Browser
   if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8080`
+    // ถ้าเล่นบนเครื่องตัวเองในคอม (Localhost) ค่อยชี้ไปพอร์ต 8080
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return "http://localhost:8080";
+    }
+    // ถ้าอยู่บนเว็บจริง (Vercel) แต่ Environment พัง ให้ชี้ไปที่ Render ตัวหลักเป็นแนวรับสุดท้าย
+    return ENVIRONMENT_BACKEND_URL || "https://nutrismart-dc0b.onrender.com";
   }
 
-  return "http://localhost:8080"
+  // สำหรับฝั่ง Server-side SSR
+  return ENVIRONMENT_BACKEND_URL || "http://localhost:8080";
 }
 
-const resolvedBackendUrl = getBackendUrl()
+// ตัวแปรแกนหลักตัวเดียวที่จะใช้คุยกับ API ทุกฟังก์ชันต่อจากนี้
+const FINAL_BACKEND_URL = getBackendUrl();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -136,10 +151,10 @@ export interface HealthSummary {
 }
 
 function buildUrl(path: string, userId?: string) {
-  const url = new URL(`${resolvedBackendUrl}${path}`)
+  const url = new URL(`${FINAL_BACKEND_URL}${path}`)
   if (userId) url.searchParams.set("user_id", userId)
   if (typeof window !== "undefined") {
-    console.debug("[backend-api] buildUrl", { resolvedBackendUrl, path, url: url.toString() })
+    console.debug("[backend-api] buildUrl", { FINAL_BACKEND_URL, path, url: url.toString() })
   }
   return url.toString()
 }
@@ -181,7 +196,7 @@ export async function analyzeImageWithBackend(
   const blob = new Blob([byteArray], { type: mimeType });
   formData.append("file", blob, "nutrition-label.jpg");
 
-  const response = await fetch(`${BACKEND_URL}/api/analyze/image`, {
+  const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/image`, {
     method: "POST",
     body: formData,
   });
@@ -200,7 +215,7 @@ export async function analyzeManualWithBackend(data: {
   sugar: number;
   sodium: number;
 }): Promise<AnalyzeResult> {
-  const response = await fetch(`${BACKEND_URL}/api/analyze/manual`, {
+  const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/manual`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -215,7 +230,7 @@ export async function chatWithBackend(
   message: string,
   history: ChatMessage[] = []
 ): Promise<string> {
-  const response = await fetch(`${BACKEND_URL}/api/chat`, {
+  const response = await fetch(`${FINAL_BACKEND_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, history }),
@@ -340,7 +355,7 @@ export async function fetchHealthSummary(userId?: string): Promise<HealthSummary
 
 export async function checkBackendHealth(): Promise<boolean> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
+    const response = await fetch(`${FINAL_BACKEND_URL}/health`, {
       signal: AbortSignal.timeout(3000),
     });
     return response.ok;
