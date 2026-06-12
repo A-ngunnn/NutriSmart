@@ -96,3 +96,23 @@ async def analyze_manual(body: ManualAnalyzeRequest):
         return AnalyzeResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
+
+class EstimateRequest(BaseModel):
+    food_name: str
+
+class EstimateResponse(BaseModel):
+    foodName: str
+    calories: float
+    protein: float
+    carbs: float
+    fat: float
+
+@router.post("/estimate", response_model=EstimateResponse)
+async def estimate_food(body: EstimateRequest):
+    """Estimate nutrition for a given food name."""
+    try:
+        from services.ai_service import estimate_food_nutrition
+        result = await estimate_food_nutrition(body.food_name)
+        return EstimateResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการประมาณค่า: {str(e)}")

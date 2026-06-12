@@ -54,23 +54,37 @@ function calcTDEE(bmr: number, activity: string, goal: string) {
   if (goal === "gain") t += 500
   return Math.round(t)
 }
-function bmiInfo(bmi: number) {
-  if (bmi === 0) return { text: "ยังไม่มีข้อมูล", color: "text-muted-foreground", pct: 0 }
-  if (bmi < 18.5) return { text: "น้ำหนักน้อย", color: "text-blue-500", pct: (bmi / 40) * 100 }
-  if (bmi < 23)   return { text: "สมส่วน (เกณฑ์ไทย)", color: "text-primary", pct: (bmi / 40) * 100 }
-  if (bmi < 25)   return { text: "สมส่วน (เกณฑ์ตะวันตก)", color: "text-primary", pct: (bmi / 40) * 100 }
-  if (bmi < 30)   return { text: "น้ำหนักเกิน", color: "text-secondary", pct: (bmi / 40) * 100 }
-  return { text: "โรคอ้วน", color: "text-destructive", pct: Math.min((bmi / 40) * 100, 100) }
+// BMI scale bar zones – ขอบเขตค่า BMI แต่ละช่วง + ความกว้างเป็น % บนแถบ
+const BMI_ZONES = [
+  { label: "ต่ำกว่าเกณฑ์", color: "bg-blue-400",    w: 20, minBmi: 0,    maxBmi: 18.5 },
+  { label: "สมส่วน",       color: "bg-green-500",   w: 20, minBmi: 18.5, maxBmi: 23   },
+  { label: "ท้วม",         color: "bg-yellow-400",  w: 20, minBmi: 23,   maxBmi: 25   },
+  { label: "เกินเกณฑ์",    color: "bg-orange-500",  w: 20, minBmi: 25,   maxBmi: 30   },
+  { label: "อ้วน",         color: "bg-destructive", w: 20, minBmi: 30,   maxBmi: 45   },
+]
+
+function bmiToBarPct(bmi: number): number {
+  if (bmi <= 0) return 0
+  let offset = 0
+  for (const zone of BMI_ZONES) {
+    if (bmi < zone.maxBmi) {
+      // BMI อยู่ในโซนนี้ → interpolate ตำแหน่งภายในโซน
+      const ratio = (bmi - zone.minBmi) / (zone.maxBmi - zone.minBmi)
+      return Math.min(offset + ratio * zone.w, 98)
+    }
+    offset += zone.w
+  }
+  return 98 // BMI สูงเกินกว่าทุกโซน → วางท้ายสุด
 }
 
-// BMI scale bar zones
-const BMI_ZONES = [
-  { label: "<18.5", color: "bg-blue-400",       w: "23%"  },
-  { label: "18.5-23", color: "bg-primary",      w: "11%"  },
-  { label: "23-25", color: "bg-yellow-400",     w: "5%"   },
-  { label: "25-30", color: "bg-secondary",      w: "12%"  },
-  { label: ">30", color: "bg-destructive",      w: "49%"  },
-]
+function bmiInfo(bmi: number) {
+  if (bmi === 0) return { text: "ยังไม่มีข้อมูล", color: "text-muted-foreground", pct: 0 }
+  if (bmi < 18.5) return { text: "น้ำหนักน้อย", color: "text-blue-500", pct: bmiToBarPct(bmi) }
+  if (bmi < 23)   return { text: "สมส่วน (เกณฑ์ไทย)", color: "text-primary", pct: bmiToBarPct(bmi) }
+  if (bmi < 25)   return { text: "สมส่วน (เกณฑ์ตะวันตก)", color: "text-primary", pct: bmiToBarPct(bmi) }
+  if (bmi < 30)   return { text: "น้ำหนักเกิน", color: "text-orange-500", pct: bmiToBarPct(bmi) }
+  return { text: "โรคอ้วน", color: "text-destructive", pct: bmiToBarPct(bmi) }
+}
 
 const profileSchema = z.object({
   name: z.string().min(2, "ชื่อต้องมีอย่างน้อย 2 ตัวอักษร"),
@@ -155,7 +169,7 @@ export default function ProfilePage({ profile, onSave }: ProfilePageProps) {
           <p className="text-sm font-bold text-foreground mb-3">ตำแหน่ง BMI ของคุณ</p>
           <div className="relative h-4 flex rounded-full overflow-hidden mb-4">
             {BMI_ZONES.map(z => (
-              <div key={z.label} className={`${z.color} h-full`} style={{ width: z.w }} />
+              <div key={z.label} className={`${z.color} h-full`} style={{ width: `${z.w}%` }} />
             ))}
             {/* Marker */}
             <div
@@ -166,10 +180,9 @@ export default function ProfilePage({ profile, onSave }: ProfilePageProps) {
             </div>
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>ต่ำกว่าเกณฑ์</span>
-            <span>สมส่วน</span>
-            <span>เกินเกณฑ์</span>
-            <span>อ้วน</span>
+            {BMI_ZONES.map(z => (
+              <span key={z.label}>{z.label}</span>
+            ))}
           </div>
         </div>
       )}

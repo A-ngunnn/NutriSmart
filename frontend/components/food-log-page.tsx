@@ -54,7 +54,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
 
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/analyze/manual`,
+        `${process.env.NEXT_PUBLIC_API_URL}/analyze/estimate`,
         {
           method: "POST",
           headers: {

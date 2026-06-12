@@ -296,3 +296,31 @@ async def analyze_food_meal(image_base64: str, user_menu_text: str, mime_type: s
 
     text = await _call_openrouter(messages, temperature=0.3)
     return _parse_json_response(text)
+
+
+# ── 5. Estimate Food Nutrition (Text only) ───────────────────────────────────
+
+ESTIMATE_SYSTEM_PROMPT = """คุณคือ NutriSmart AI — ผู้เชี่ยวชาญด้านการประเมินแคลอรี่และโภชนาการอาหารไทย
+หน้าที่ของคุณคือประมาณการพลังงาน (Calories) และสารอาหารหลัก (โปรตีน, คาร์บ, ไขมัน) ของอาหารตามชื่อที่ผู้ใช้พิมพ์มา
+
+── คำตอบต้องเป็น JSON เท่านั้น ──
+ตอบกลับเป็นโครงสร้าง JSON ตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่นนอกเหนือจาก JSON:
+{
+  "foodName": "ชื่ออาหาร",
+  "calories": 0,
+  "protein": 0,
+  "carbs": 0,
+  "fat": 0
+}"""
+
+async def estimate_food_nutrition(food_name: str) -> dict:
+    messages = [
+        {"role": "system", "content": ESTIMATE_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": f"กรุณาประมาณค่าโภชนาการสำหรับอาหาร 1 จาน/หน่วยบริโภค: \"{food_name}\"\nตอบเป็น JSON โครงสร้างตามที่กำหนดเท่านั้น",
+        },
+    ]
+
+    text = await _call_openrouter(messages, temperature=0.3)
+    return _parse_json_response(text)
