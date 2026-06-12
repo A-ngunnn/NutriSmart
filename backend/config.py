@@ -15,11 +15,11 @@ class Settings(BaseSettings):
     medgemma_model: str = "google/gemma-2-9b-it"
     medgemma_fallback_model: str = "gpt-4o-mini"
     storage_db: str = str(Path(__file__).resolve().parents[1] / "backend_data" / "nutrismart.db")
+    database_url: str = "postgresql://user:password@localhost:5432/nutrismart"
 
     class Config:
         env_file = ".env"
         extra = "ignore"
-
 
 @lru_cache()
 def get_settings() -> Settings:

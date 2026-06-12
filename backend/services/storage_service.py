@@ -1,95 +1,34 @@
-import sqlite3
 import uuid
-from pathlib import Path
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from config import get_settings
+from database import SessionLocal, engine, Base
+import models
+from sqlalchemy import text
 
 settings = get_settings()
-
-DB_PATH = Path(settings.storage_db).resolve()
-
-CREATE_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS profiles (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    age TEXT,
-    gender TEXT,
-    weight TEXT,
-    height TEXT,
-    activity_level TEXT,
-    goal TEXT,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS food_logs (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    meal_type TEXT NOT NULL,
-    calories REAL NOT NULL,
-    protein REAL NOT NULL,
-    carbs REAL NOT NULL,
-    fat REAL NOT NULL,
-    date TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS scan_history (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    product_name TEXT NOT NULL,
-    calories REAL NOT NULL,
-    protein REAL NOT NULL,
-    carbs REAL NOT NULL,
-    total_fat REAL NOT NULL,
-    sugar REAL NOT NULL,
-    sodium REAL NOT NULL,
-    score REAL NOT NULL,
-    status TEXT NOT NULL,
-    date TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS water_logs (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    amount REAL NOT NULL,
-    date TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-"""
 
 DEFAULT_USER_ID = "default"
 
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def initialize_storage() -> None:
-    with _connect() as conn:
-        conn.executescript(CREATE_TABLES_SQL)
-        conn.commit()
+    Base.metadata.create_all(bind=engine)
 
 
 def _today_str() -> str:
     return date.today().isoformat()
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    return {key: row[key] for key in row.keys()}
+def _model_to_dict(obj) -> dict:
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
 def get_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM profiles WHERE id = ?", (user_id,)).fetchone()
-        if row is None:
+    with SessionLocal() as db:
+        profile = db.query(models.Profile).filter(models.Profile.id == user_id).first()
+        if profile is None:
             return {
                 "id": user_id,
                 "name": "",
@@ -100,118 +39,99 @@ def get_profile(user_id: Optional[str] = None) -> Dict[str, Any]:
                 "activity_level": "sedentary",
                 "goal": "maintain",
             }
-        return _row_to_dict(row)
+        return _model_to_dict(profile)
 
 
 def upsert_profile(user_id: Optional[str], profile_data: Dict[str, Any]) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
     now = datetime.utcnow().isoformat()
-    with _connect() as conn:
-        existing = conn.execute("SELECT 1 FROM profiles WHERE id = ?", (user_id,)).fetchone()
-        if existing:
-            conn.execute(
-                """
-                UPDATE profiles SET name = ?, age = ?, gender = ?, weight = ?, height = ?, activity_level = ?, goal = ?
-                WHERE id = ?
-                """,
-                (
-                    profile_data.get("name", ""),
-                    profile_data.get("age", ""),
-                    profile_data.get("gender", "male"),
-                    profile_data.get("weight", ""),
-                    profile_data.get("height", ""),
-                    profile_data.get("activity_level", "sedentary"),
-                    profile_data.get("goal", "maintain"),
-                    user_id,
-                ),
-            )
+    with SessionLocal() as db:
+        profile = db.query(models.Profile).filter(models.Profile.id == user_id).first()
+        if profile:
+            profile.name = profile_data.get("name", "")
+            profile.age = profile_data.get("age", "")
+            profile.gender = profile_data.get("gender", "male")
+            profile.weight = profile_data.get("weight", "")
+            profile.height = profile_data.get("height", "")
+            profile.activity_level = profile_data.get("activity_level", "sedentary")
+            profile.goal = profile_data.get("goal", "maintain")
         else:
-            conn.execute(
-                """
-                INSERT INTO profiles (id, name, age, gender, weight, height, activity_level, goal, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    user_id,
-                    profile_data.get("name", ""),
-                    profile_data.get("age", ""),
-                    profile_data.get("gender", "male"),
-                    profile_data.get("weight", ""),
-                    profile_data.get("height", ""),
-                    profile_data.get("activity_level", "sedentary"),
-                    profile_data.get("goal", "maintain"),
-                    now,
-                ),
+            profile = models.Profile(
+                id=user_id,
+                name=profile_data.get("name", ""),
+                age=profile_data.get("age", ""),
+                gender=profile_data.get("gender", "male"),
+                weight=profile_data.get("weight", ""),
+                height=profile_data.get("height", ""),
+                activity_level=profile_data.get("activity_level", "sedentary"),
+                goal=profile_data.get("goal", "maintain"),
+                created_at=now
             )
-        conn.commit()
-    return get_profile(user_id)
+            db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        return _model_to_dict(profile)
 
 
 def get_food_entries(user_id: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
     user_id = user_id or DEFAULT_USER_ID
-    with _connect() as conn:
-        query = "SELECT * FROM food_logs WHERE user_id = ?"
-        params: List[Any] = [user_id]
+    with SessionLocal() as db:
+        query = db.query(models.FoodLog).filter(models.FoodLog.user_id == user_id)
         if start_date:
-            query += " AND date >= ?"
-            params.append(start_date)
+            query = query.filter(models.FoodLog.date >= start_date)
         if end_date:
-            query += " AND date <= ?"
-            params.append(end_date)
-        query += " ORDER BY created_at DESC"
-        rows = conn.execute(query, params).fetchall()
-        return [_row_to_dict(row) for row in rows]
+            query = query.filter(models.FoodLog.date <= end_date)
+        query = query.order_by(models.FoodLog.created_at.desc())
+        rows = query.all()
+        return [_model_to_dict(row) for row in rows]
 
 
 def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any]) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
     now = datetime.utcnow().isoformat()
     entry_id = str(uuid.uuid4())
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO food_logs (id, user_id, name, meal_type, calories, protein, carbs, fat, date, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                entry_id,
-                user_id,
-                entry["name"],
-                entry["meal_type"],
-                float(entry["calories"]),
-                float(entry["protein"]),
-                float(entry["carbs"]),
-                float(entry["fat"]),
-                entry.get("date", _today_str()),
-                now,
-            ),
+    entry_date = entry.get("date", _today_str())
+    with SessionLocal() as db:
+        new_entry = models.FoodLog(
+            id=entry_id,
+            user_id=user_id,
+            name=entry["name"],
+            meal_type=entry["meal_type"],
+            calories=float(entry["calories"]),
+            protein=float(entry["protein"]),
+            carbs=float(entry["carbs"]),
+            fat=float(entry["fat"]),
+            date=entry_date,
+            created_at=now
         )
-        conn.commit()
-    return {"id": entry_id, "user_id": user_id, **entry, "date": entry.get("date", _today_str()), "created_at": now}
+        db.add(new_entry)
+        db.commit()
+        db.refresh(new_entry)
+        return _model_to_dict(new_entry)
 
 
 def delete_food_entry(user_id: Optional[str], entry_id: str) -> bool:
     user_id = user_id or DEFAULT_USER_ID
-    with _connect() as conn:
-        result = conn.execute("DELETE FROM food_logs WHERE id = ? AND user_id = ?", (entry_id, user_id))
-        conn.commit()
-        return result.rowcount > 0
+    with SessionLocal() as db:
+        entry = db.query(models.FoodLog).filter(models.FoodLog.id == entry_id, models.FoodLog.user_id == user_id).first()
+        if entry:
+            db.delete(entry)
+            db.commit()
+            return True
+        return False
 
 
 def get_water_entries(user_id: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
     user_id = user_id or DEFAULT_USER_ID
-    with _connect() as conn:
-        query = "SELECT * FROM water_logs WHERE user_id = ?"
-        params: List[Any] = [user_id]
+    with SessionLocal() as db:
+        query = db.query(models.WaterLog).filter(models.WaterLog.user_id == user_id)
         if start_date:
-            query += " AND date >= ?"
-            params.append(start_date)
+            query = query.filter(models.WaterLog.date >= start_date)
         if end_date:
-            query += " AND date <= ?"
-            params.append(end_date)
-        query += " ORDER BY created_at DESC"
-        rows = conn.execute(query, params).fetchall()
-        return [_row_to_dict(row) for row in rows]
+            query = query.filter(models.WaterLog.date <= end_date)
+        query = query.order_by(models.WaterLog.created_at.desc())
+        rows = query.all()
+        return [_model_to_dict(row) for row in rows]
 
 
 def insert_water_entry(user_id: Optional[str], amount: float, entry_date: Optional[str] = None) -> Dict[str, Any]:
@@ -219,68 +139,66 @@ def insert_water_entry(user_id: Optional[str], amount: float, entry_date: Option
     now = datetime.utcnow().isoformat()
     entry_id = str(uuid.uuid4())
     entry_date = entry_date or _today_str()
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO water_logs (id, user_id, amount, date, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (entry_id, user_id, float(amount), entry_date, now),
+    with SessionLocal() as db:
+        new_entry = models.WaterLog(
+            id=entry_id,
+            user_id=user_id,
+            amount=float(amount),
+            date=entry_date,
+            created_at=now
         )
-        conn.commit()
-    return {"id": entry_id, "user_id": user_id, "amount": float(amount), "date": entry_date, "created_at": now}
+        db.add(new_entry)
+        db.commit()
+        db.refresh(new_entry)
+        return _model_to_dict(new_entry)
 
 
 def delete_water_entry(user_id: Optional[str], entry_id: str) -> bool:
     user_id = user_id or DEFAULT_USER_ID
-    with _connect() as conn:
-        result = conn.execute("DELETE FROM water_logs WHERE id = ? AND user_id = ?", (entry_id, user_id))
-        conn.commit()
-        return result.rowcount > 0
+    with SessionLocal() as db:
+        entry = db.query(models.WaterLog).filter(models.WaterLog.id == entry_id, models.WaterLog.user_id == user_id).first()
+        if entry:
+            db.delete(entry)
+            db.commit()
+            return True
+        return False
 
 
 def get_scan_history(user_id: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     user_id = user_id or DEFAULT_USER_ID
-    with _connect() as conn:
-        query = "SELECT * FROM scan_history WHERE user_id = ? ORDER BY created_at DESC"
-        params: List[Any] = [user_id]
+    with SessionLocal() as db:
+        query = db.query(models.ScanHistory).filter(models.ScanHistory.user_id == user_id).order_by(models.ScanHistory.created_at.desc())
         if limit:
-            query += " LIMIT ?"
-            params.append(limit)
-        rows = conn.execute(query, params).fetchall()
-        return [_row_to_dict(row) for row in rows]
+            query = query.limit(limit)
+        rows = query.all()
+        return [_model_to_dict(row) for row in rows]
 
 
 def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any]) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
     now = datetime.utcnow().isoformat()
     record_id = str(uuid.uuid4())
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO scan_history (
-                id, user_id, product_name, calories, protein, carbs, total_fat,
-                sugar, sodium, score, status, date, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record_id,
-                user_id,
-                scan_data["product_name"],
-                float(scan_data["calories"]),
-                float(scan_data["protein"]),
-                float(scan_data["carbs"]),
-                float(scan_data["total_fat"]),
-                float(scan_data["sugar"]),
-                float(scan_data["sodium"]),
-                float(scan_data["score"]),
-                scan_data["status"],
-                scan_data.get("date", _today_str()),
-                now,
-            ),
+    entry_date = scan_data.get("date", _today_str())
+    with SessionLocal() as db:
+        new_record = models.ScanHistory(
+            id=record_id,
+            user_id=user_id,
+            product_name=scan_data["product_name"],
+            calories=float(scan_data["calories"]),
+            protein=float(scan_data["protein"]),
+            carbs=float(scan_data["carbs"]),
+            total_fat=float(scan_data["total_fat"]),
+            sugar=float(scan_data["sugar"]),
+            sodium=float(scan_data["sodium"]),
+            score=float(scan_data["score"]),
+            status=scan_data["status"],
+            date=entry_date,
+            created_at=now
         )
-        conn.commit()
-    return {"id": record_id, "user_id": user_id, **scan_data, "date": scan_data.get("date", _today_str()), "created_at": now}
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+        return _model_to_dict(new_record)
 
 
 def _calc_tdee(profile: Dict[str, Any]) -> int:
@@ -399,8 +317,8 @@ def get_service_status() -> Dict[str, Any]:
         "ai_api_key_set": bool(settings.medgemma_api_key),
     }
     try:
-        with _connect() as conn:
-            conn.execute("SELECT 1").fetchone()
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
     except Exception as exc:
         status["status"] = "error"
         status["database"] = "error"
