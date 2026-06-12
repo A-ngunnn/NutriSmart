@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { analyzeImageWithBackend, analyzeManualWithBackend } from "@/lib/backend-api"
+import { createClient } from "@/lib/supabase/client"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NutritionData {
@@ -359,7 +360,9 @@ export default function AnalyzerPage() {
     if (!capturedImage) return
     setScanning(true)
     try {
-      const data = await analyzeImageWithBackend(capturedImage)
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const data = await analyzeImageWithBackend(capturedImage, session?.user?.id)
       setForm({
         productName: data.productName || "",
         calories: data.calories || 0,

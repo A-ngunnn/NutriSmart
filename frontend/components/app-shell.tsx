@@ -22,7 +22,7 @@ const NAV_ITEMS = [
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { userName, clearState } = useAppStore()
+  const { userName, clearState, fetchUserData } = useAppStore()
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -32,19 +32,30 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     const supabase = createClient()
 
     // Check initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
         router.push("/")
       } else {
+        try {
+          await fetchUserData(session.user.id)
+        } catch (error) {
+          console.error("Failed to load user data on init:", error)
+        }
         setLoading(false)
       }
     })
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!session) {
+        clearState()
         router.push("/")
       } else {
+        try {
+          await fetchUserData(session.user.id)
+        } catch (error) {
+          console.error("Failed to load user data on auth change:", error)
+        }
         setLoading(false)
       }
     })
@@ -52,7 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.unsubscribe()
     }
-  }, [router])
+  }, [router, fetchUserData, clearState])
 
   const handleLogout = async () => {
     const supabase = createClient()

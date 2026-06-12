@@ -179,7 +179,8 @@ async function parseJson<T>(response: Response): Promise<T> {
 // ── Analyze: image ────────────────────────────────────────────────────────────
 
 export async function analyzeImageWithBackend(
-  imageBase64DataURL: string
+  imageBase64DataURL: string,
+  userId?: string
 ): Promise<AnalyzeResult> {
   const match = imageBase64DataURL.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) throw new Error("Invalid image format");
@@ -195,6 +196,9 @@ export async function analyzeImageWithBackend(
   const byteArray = new Uint8Array(byteNumbers);
   const blob = new Blob([byteArray], { type: mimeType });
   formData.append("file", blob, "nutrition-label.jpg");
+  if (userId) {
+    formData.append("user_id", userId);
+  }
 
   const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/image`, {
     method: "POST",
