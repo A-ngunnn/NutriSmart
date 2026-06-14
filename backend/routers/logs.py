@@ -68,44 +68,44 @@ class WaterLogResponse(WaterLogRequest):
 
 def _food_response(row: dict) -> FoodLogResponse:
     return FoodLogResponse(
-        id=row["id"],
-        user_id=row["user_id"],
-        name=row["name"],
-        mealType=row["meal_type"],
-        calories=float(row["calories"]),
-        protein=float(row["protein"]),
-        carbs=float(row["carbs"]),
-        fat=float(row["fat"]),
-        date=str(row["date"]),
-        created_at=str(row["created_at"]),
+        id=str(row.get("id") or ""),
+        user_id=str(row.get("user_id") or ""),
+        name=str(row.get("name") or ""),
+        mealType=str(row.get("meal_type") or ""),
+        calories=float(row.get("calories") or 0),
+        protein=float(row.get("protein") or 0),
+        carbs=float(row.get("carbs") or 0),
+        fat=float(row.get("fat") or 0),
+        date=str(row.get("date") or ""),
+        created_at=str(row.get("created_at") or ""),
     )
 
 
 def _scan_response(row: dict) -> ScanLogResponse:
     return ScanLogResponse(
-        id=row["id"],
-        user_id=row["user_id"],
-        productName=row["product_name"],
-        calories=float(row["calories"]),
-        protein=float(row["protein"]),
-        carbs=float(row["carbs"]),
-        totalFat=float(row["total_fat"]),
-        sugar=float(row["sugar"]),
-        sodium=float(row["sodium"]),
-        score=float(row["score"]),
-        status=row["status"],
-        date=str(row["date"]),
-        created_at=str(row["created_at"]),
+        id=str(row.get("id") or ""),
+        user_id=str(row.get("user_id") or ""),
+        productName=str(row.get("product_name") or ""),
+        calories=float(row.get("calories") or 0),
+        protein=float(row.get("protein") or 0),
+        carbs=float(row.get("carbs") or 0),
+        totalFat=float(row.get("total_fat") or 0),
+        sugar=float(row.get("sugar") or 0),
+        sodium=float(row.get("sodium") or 0),
+        score=float(row.get("score") or 0),
+        status=str(row.get("status") or ""),
+        date=str(row.get("date") or ""),
+        created_at=str(row.get("created_at") or ""),
     )
 
 
 def _water_response(row: dict) -> WaterLogResponse:
     return WaterLogResponse(
-        id=row["id"],
-        user_id=row["user_id"],
-        amount=float(row["amount"]),
-        date=str(row["date"]),
-        created_at=str(row["created_at"]),
+        id=str(row.get("id") or ""),
+        user_id=str(row.get("user_id") or ""),
+        amount=float(row.get("amount") or 0),
+        date=str(row.get("date") or ""),
+        created_at=str(row.get("created_at") or ""),
     )
 
 
