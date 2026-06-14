@@ -33,7 +33,7 @@ from fastapi import HTTPException
 
 # ── OpenRouter Configuration ────────────────────────────────────────────────
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.5-flash:free"
+OPENROUTER_MODEL = "google/gemini-2.5-flash"
 
 def _get_headers():
     return {
