@@ -119,7 +119,7 @@ def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any], bg_tasks=No
 # ── Sodium Auto-Trigger Helper ───────────────────────────────────────────────
 SODIUM_DAILY_LIMIT_MG = 2_000.0
 
-def _check_sodium_and_notify(user_id: str, date_str: str, bg_tasks=None) -> None:
+def _check_sodium_and_notify(user_id: str, check_date: str, bg_tasks=None) -> None:
     """
     คำนวณโซเดียมรวมจาก ScanHistory ของวันที่ระบุ
     ถ้าเกิน 2,000 mg → INSERT notification เตือน (ไม่เตือนซ้ำวันเดียวกัน)
