@@ -36,7 +36,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
 DEFAULT_VISION_MODEL = "gemini-2.5-flash"  # Route to Google direct
-DEFAULT_CHAT_MODEL = "google/gemma-2-9b-it" # Route to OpenRouter
+DEFAULT_CHAT_MODEL = "gemini-2.5-flash" # Route to Google direct (bypass OpenRouter)
 
 def _get_headers(is_gemini: bool = False):
     if is_gemini:
@@ -302,7 +302,7 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> 
 
     messages.append({"role": "user", "content": user_message})
 
-    # 🌟 ใช้ MedGemma (google/gemma-2-9b-it) ผ่าน OpenRouter สำหรับ RAG Chatbot ตามรายงาน
+    # 🌟 ใช้ Gemini 2.5 Flash โดยตรงเพื่อแก้ปัญหา OpenRouter API ล่มหรือจำกัดสิทธิ์
     return await _call_ai_api(messages, temperature=0.4, model=DEFAULT_CHAT_MODEL)
 
 

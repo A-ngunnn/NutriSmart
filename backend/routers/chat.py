@@ -42,5 +42,7 @@ async def nutri_chat(body: ChatRequest):
 
         reply = await chat(body.message, chat_history=history_dicts)
         return ChatResponse(reply=reply)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการตอบ: {str(e)}")
