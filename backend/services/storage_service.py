@@ -157,17 +157,19 @@ def _check_sodium_and_notify(user_id: str, check_date: str) -> None:
             # ── INSERT notification ──────────────────────────────────────────
             nid = str(uuid.uuid4())
             now = datetime.utcnow().isoformat()
+            notif_title = "⚠️ โซเดียมเกินเกณฑ์วันนี้!"
+            notif_body = (
+                f"วันนี้คุณได้รับโซเดียมสะสม {total_sodium:.0f} mg "
+                f"ซึ่งเกินค่าแนะนำ {SODIUM_DAILY_LIMIT_MG:.0f} mg/วัน "
+                "แนะนำให้มื้อต่อไปเลือกอาหารรสอ่อนและลดเครื่องปรุงนะคะ 🧂"
+            )
             notif = models.Notification(
                 id=nid,
                 user_id=user_id,
                 category="goal",
                 priority="high",
-                title="⚠️ โซเดียมเกินเกณฑ์วันนี้!",
-                body=(
-                    f"วันนี้คุณได้รับโซเดียมสะสม {total_sodium:.0f} mg "
-                    f"ซึ่งเกินค่าแนะนำ {SODIUM_DAILY_LIMIT_MG:.0f} mg/วัน "
-                    "แนะนำให้มื้อต่อไปเลือกอาหารรสอ่อนและลดเครื่องปรุงนะคะ 🧂"
-                ),
+                title=notif_title,
+                body=notif_body,
                 emoji="🧂",
                 is_read=False,
                 is_dismissed=False,
@@ -175,12 +177,35 @@ def _check_sodium_and_notify(user_id: str, check_date: str) -> None:
             )
             db.add(notif)
             db.commit()
+
+            # ── ส่ง LINE Push (fire-and-forget, non-blocking) ────────────────
+            try:
+                import asyncio
+                from services.line_service import send_line_if_available
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(
+                        send_line_if_available(
+                            user_id=user_id,
+                            title=notif_title,
+                            body=notif_body,
+                            emoji="🧂",
+                            category="goal",
+                            priority="high",
+                        )
+                    )
+            except Exception as line_exc:
+                logging.getLogger("nutrismart.storage").warning(
+                    "[LINE] Sodium LINE push failed (non-fatal): %s", line_exc
+                )
+
     except Exception as exc:
         # ไม่ให้ error ของ notification ทำให้ food log พัง
         import logging
         logging.getLogger("nutrismart.storage").warning(
             "Sodium notify error (non-fatal): %s", exc
         )
+
 
 
 def delete_food_entry(user_id: Optional[str], entry_id: str) -> bool:

@@ -11,6 +11,7 @@ class Profile(Base):
     height = Column(String)
     activity_level = Column(String)
     goal = Column(String)
+    line_user_id = Column(String, nullable=True)   # LINE User ID (เริ่มด้วย 'U')
     created_at = Column(String, nullable=False)
 
 class FoodLog(Base):

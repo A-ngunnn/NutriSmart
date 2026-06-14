@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     medgemma_fallback_model: str = "gpt-4o-mini"
     storage_db: str = str(Path(__file__).resolve().parents[1] / "backend_data" / "nutrismart.db")
     database_url: str = "postgresql://user:password@localhost:5432/nutrismart"
+    line_channel_access_token: str = ""  # LINE Messaging API — set LINE_CHANNEL_ACCESS_TOKEN in .env
 
     class Config:
         env_file = ".env"

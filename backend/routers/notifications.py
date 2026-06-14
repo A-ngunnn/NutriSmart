@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from config import get_settings
 from database import SessionLocal
 import models
+from services.line_service import send_line_if_available
 
 settings = get_settings()
 logger = logging.getLogger("nutrismart.notifications")
@@ -250,6 +251,15 @@ async def trigger_weekly_summary(body: TriggerSummaryRequest):
             body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
             emoji="📊",
         )
+        # ── ส่ง LINE Push ด้วย ────────────────────────────────────────────────
+        await send_line_if_available(
+            user_id=uid,
+            title="ยังไม่มีข้อมูลอาหาร 7 วันที่ผ่านมา",
+            body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
+            emoji="📊",
+            category="ai",
+            priority="medium",
+        )
         return TriggerSummaryResponse(
             inserted=True,
             notification_id=notif.id,
@@ -314,6 +324,16 @@ async def trigger_weekly_summary(body: TriggerSummaryRequest):
         title="รายงานสุขภาพประจำสัปดาห์ 📊",
         body=ai_summary,
         emoji="📊",
+    )
+
+    # ── ส่ง LINE Push ควบคู่กับการบันทึกในเว็บ ──────────────────────────────
+    await send_line_if_available(
+        user_id=uid,
+        title="รายงานสุขภาพประจำสัปดาห์ 📊",
+        body=ai_summary,
+        emoji="📊",
+        category="ai",
+        priority="medium",
     )
 
     return TriggerSummaryResponse(
