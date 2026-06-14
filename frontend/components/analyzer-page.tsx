@@ -372,15 +372,7 @@ export default function AnalyzerPage() {
         sugar: data.sugar || 0,
         sodium: data.sodium || 0,
       })
-      setResult(mapBackendResult(data, {
-        productName: data.productName || "",
-        calories: data.calories || 0,
-        protein: data.protein || 0,
-        carbs: data.carbs || 0,
-        totalFat: data.totalFat || 0,
-        sugar: data.sugar || 0,
-        sodium: data.sodium || 0,
-      }))
+      // ⚠️ นำค่ามาใส่ในฟอร์มเท่านั้น เพื่อให้ผู้ใช้ตรวจสอบความถูกต้องก่อนกดปุ่มวิเคราะห์เอง
       setCapturedImage(null)
     } catch (err) {
       console.error(err)
@@ -429,7 +421,7 @@ export default function AnalyzerPage() {
                     className="w-full h-12 rounded-xl bg-primary text-white font-semibold flex items-center justify-center gap-2 hover:bg-primary/90 active:scale-[0.98] transition-all text-sm"
                   >
                     <Camera className="w-4 h-4" />
-                    ถ่ายรูปสแกนฉลากโภชนาการ
+                    ถ่ายรูปอาหาร หรือ สแกนฉลากโภชนาการ
                   </button>
                   <button
                     onClick={() => fileInputRef.current?.click()}
