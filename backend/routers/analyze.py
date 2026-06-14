@@ -43,6 +43,25 @@ class AnalyzeResponse(BaseModel):
     warnings: list[str] = []
     advice: str = ""
 
+def _safe_analyze_response(raw: dict) -> AnalyzeResponse:
+    return AnalyzeResponse(
+        productName=str(raw.get("productName") or "ไม่ทราบชื่อ"),
+        servingSize=str(raw.get("servingSize") or ""),
+        calories=float(raw.get("calories") or 0),
+        protein=float(raw.get("protein") or 0),
+        carbs=float(raw.get("carbs") or 0),
+        totalFat=float(raw.get("totalFat") or 0),
+        saturatedFat=float(raw.get("saturatedFat") or 0),
+        transFat=float(raw.get("transFat") or 0),
+        sugar=float(raw.get("sugar") or 0),
+        sodium=float(raw.get("sodium") or 0),
+        fiber=float(raw.get("fiber") or 0),
+        score=float(raw.get("score") or 0),
+        status=str(raw.get("status") or "danger"),
+        warnings=list(raw.get("warnings") or []),
+        advice=str(raw.get("advice") or ""),
+    )
+
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
@@ -64,18 +83,19 @@ async def analyze_image(
 
     try:
         result = await analyze_label_image(image_base64, mime_type=file.content_type)
+        safe_result = _safe_analyze_response(result)
         inserted = insert_scan_record(user_id, {
-            "product_name": result["productName"],
-            "calories": result["calories"],
-            "protein": result["protein"],
-            "carbs": result["carbs"],
-            "total_fat": result["totalFat"],
-            "sugar": result["sugar"],
-            "sodium": result["sodium"],
-            "score": result["score"],
-            "status": result["status"],
+            "product_name": safe_result.productName,
+            "calories": safe_result.calories,
+            "protein": safe_result.protein,
+            "carbs": safe_result.carbs,
+            "total_fat": safe_result.totalFat,
+            "sugar": safe_result.sugar,
+            "sodium": safe_result.sodium,
+            "score": safe_result.score,
+            "status": safe_result.status,
         })
-        return AnalyzeResponse(**result)
+        return safe_result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
 
@@ -93,7 +113,7 @@ async def analyze_manual(body: ManualAnalyzeRequest):
             sugar=body.sugar,
             sodium=body.sodium,
         )
-        return AnalyzeResponse(**result)
+        return _safe_analyze_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
 
