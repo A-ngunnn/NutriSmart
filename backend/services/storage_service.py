@@ -109,9 +109,9 @@ def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any], bg_tasks=No
         db.refresh(new_entry)
         result = _model_to_dict(new_entry)
 
-    # ── Sodium Auto-Trigger ───────────────────────────────────────────────────
-    # ตรวจสอบโซเดียมรวมจาก ScanHistory ของวันนี้ แล้วแจ้งเตือนถ้าเกินเกณฑ์
+    # ── Auto-Triggers ──────────────────────────────────────────────────────────
     _check_sodium_and_notify(user_id, entry_date, bg_tasks=bg_tasks)
+    _check_calories_and_notify(user_id, entry_date, bg_tasks=bg_tasks)
 
     return result
 
@@ -204,6 +204,92 @@ def _check_sodium_and_notify(user_id: str, check_date: str, bg_tasks=None) -> No
             "Sodium notify error (non-fatal): %s", exc
         )
 
+# ── Calories Auto-Trigger Helper ─────────────────────────────────────────────
+def _check_calories_and_notify(user_id: str, check_date: str, bg_tasks=None) -> None:
+    """
+    คำนวณแคลอรีรวมจาก FoodLog ของวันที่ระบุ
+    ถ้าเกินเป้าหมาย (TDEE หรือค่าคงที่ 2000) → INSERT notification เตือน (ไม่เตือนซ้ำวันเดียวกัน)
+    """
+    try:
+        with SessionLocal() as db:
+            foods = (
+                db.query(models.FoodLog)
+                .filter(
+                    models.FoodLog.user_id == user_id,
+                    models.FoodLog.date == check_date,
+                )
+                .all()
+            )
+            total_calories = sum(float(f.calories or 0) for f in foods)
+
+            profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
+            limit = profile.tdee if (profile and profile.tdee) else 2000.0
+
+            if total_calories <= limit:
+                return  # ยังไม่เกินเกณฑ์ ไม่ต้องแจ้งเตือน
+
+            # ── เช็ก Dedup: ถ้าวันนี้เคยแจ้งเตือนแคลอรีไปแล้ว ข้ามได้เลย ──
+            already_notified = (
+                db.query(models.Notification)
+                .filter(
+                    models.Notification.user_id == user_id,
+                    models.Notification.category == "goal",
+                    models.Notification.title.like("%แคลอรี%"),
+                    models.Notification.created_at >= check_date,  # วันเดียวกัน
+                )
+                .first()
+            )
+            if already_notified:
+                return  # เคยเตือนไปแล้ววันนี้
+
+            # ── INSERT notification ──────────────────────────────────────────
+            nid = str(uuid.uuid4())
+            now = datetime.utcnow().isoformat()
+            notif_title = "🔥 พลังงานเกินเป้าหมายแล้ว!"
+            notif_body = (
+                f"วันนี้คุณได้รับพลังงานไปแล้ว {total_calories:.0f} kcal "
+                f"ซึ่งเกินเป้าหมายที่ {limit:.0f} kcal/วัน "
+                "มื้อถัดไปลองเลือกทานอาหารเบาๆ เช่น สลัด หรือผลไม้แทนนะคะ 🥗"
+            )
+            notif = models.Notification(
+                id=nid,
+                user_id=user_id,
+                category="goal",
+                priority="high",
+                title=notif_title,
+                body=notif_body,
+                emoji="🔥",
+                is_read=False,
+                is_dismissed=False,
+                created_at=now,
+            )
+            db.add(notif)
+            db.commit()
+
+            # ── ส่ง LINE Push ────────────────
+            try:
+                from services.line_service import send_line_if_available
+                
+                if bg_tasks:
+                    bg_tasks.add_task(
+                        send_line_if_available,
+                        user_id=user_id,
+                        title=notif_title,
+                        body=notif_body,
+                        emoji="🔥",
+                        category="goal",
+                        priority="high",
+                    )
+            except Exception as line_exc:
+                logging.getLogger("nutrismart.storage").warning(
+                    "[LINE] Calories LINE push failed to queue: %s", line_exc
+                )
+
+    except Exception as exc:
+        import logging
+        logging.getLogger("nutrismart.storage").warning(
+            "Calories notify error (non-fatal): %s", exc
+        )
 
 
 def delete_food_entry(user_id: Optional[str], entry_id: str) -> bool:
