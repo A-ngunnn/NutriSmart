@@ -236,6 +236,13 @@ def insert_water_entry(user_id: Optional[str], amount: float, entry_date: Option
     entry_id = str(uuid.uuid4())
     entry_date = entry_date or _today_str()
     with SessionLocal() as db:
+        # Check if this is the first water log of the day
+        count_today = db.query(models.WaterLog).filter(
+            models.WaterLog.user_id == user_id,
+            models.WaterLog.date == entry_date
+        ).count()
+        is_first = (count_today == 0)
+
         new_entry = models.WaterLog(
             id=entry_id,
             user_id=user_id,
@@ -244,6 +251,36 @@ def insert_water_entry(user_id: Optional[str], amount: float, entry_date: Option
             created_at=now
         )
         db.add(new_entry)
+
+        if is_first:
+            nid = str(uuid.uuid4())
+            notif_title = "เยี่ยมมาก เริ่มต้นวันด้วยการดื่มน้ำ!"
+            notif_body = "เริ่มต้นวันใหม่ได้อย่างสดชื่น อย่าลืมจิบน้ำเรื่อยๆ ตลอดวันนะคะ 💧"
+            notif = models.Notification(
+                id=nid,
+                user_id=user_id,
+                category="daily",
+                priority="medium",
+                title=notif_title,
+                body=notif_body,
+                emoji="💧",
+                is_read=False,
+                is_dismissed=False,
+                created_at=now,
+            )
+            db.add(notif)
+            if bg_tasks:
+                from services.line_service import send_line_if_available
+                bg_tasks.add_task(
+                    send_line_if_available,
+                    user_id=user_id,
+                    title=notif_title,
+                    body=notif_body,
+                    emoji="💧",
+                    category="daily",
+                    priority="medium"
+                )
+
         db.commit()
         db.refresh(new_entry)
         return _model_to_dict(new_entry)
@@ -270,7 +307,7 @@ def get_scan_history(user_id: Optional[str] = None, limit: Optional[int] = None)
         return [_model_to_dict(row) for row in rows]
 
 
-def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any]) -> Dict[str, Any]:
+def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any], bg_tasks=None) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
     now = datetime.utcnow().isoformat()
     record_id = str(uuid.uuid4())
@@ -294,7 +331,9 @@ def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any]) -> Dic
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
-        return _model_to_dict(new_record)
+        
+    _check_sodium_and_notify(user_id, entry_date, bg_tasks)
+    return _model_to_dict(new_record)
 
 
 def _calc_tdee(profile: Dict[str, Any]) -> int:

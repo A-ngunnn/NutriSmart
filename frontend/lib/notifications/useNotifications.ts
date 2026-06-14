@@ -8,9 +8,7 @@ import {
   PRIORITY_WEIGHT,
 } from "./notification.types";
 
-// ─── Config ────────────────────────────────────────────────────────────────────
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
+import { FINAL_BACKEND_URL } from "../backend-api";
 
 // ─── State Shape ──────────────────────────────────────────────────────────────
 
@@ -104,7 +102,7 @@ export function useNotifications(userId?: string): UseNotificationsReturn {
 
     try {
       const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
-      const res = await fetch(`${BACKEND_URL}/api/notifications${params}`, {
+      const res = await fetch(`${FINAL_BACKEND_URL}/api/notifications${params}`, {
         signal: controller.signal,
         cache: "no-store",
       });
@@ -184,7 +182,7 @@ export function useNotifications(userId?: string): UseNotificationsReturn {
       updateLocalStatus(id, "read", { readAt: new Date().toISOString() });
       // Persist to backend
       const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
-      fetch(`${BACKEND_URL}/api/notifications/${id}/read${params}`, {
+      fetch(`${FINAL_BACKEND_URL}/api/notifications/${id}/read${params}`, {
         method: "PUT",
       }).catch((e) => console.warn("[useNotifications] markAsRead error:", e));
     },
@@ -205,7 +203,7 @@ export function useNotifications(userId?: string): UseNotificationsReturn {
       .filter((n) => n.status === "unread")
       .forEach((n) => {
         const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
-        fetch(`${BACKEND_URL}/api/notifications/${n.id}/read${params}`, {
+        fetch(`${FINAL_BACKEND_URL}/api/notifications/${n.id}/read${params}`, {
           method: "PUT",
         }).catch(() => {});
       });
@@ -215,7 +213,7 @@ export function useNotifications(userId?: string): UseNotificationsReturn {
     (id: string) => {
       updateLocalStatus(id, "dismissed");
       const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
-      fetch(`${BACKEND_URL}/api/notifications/${id}${params}`, {
+      fetch(`${FINAL_BACKEND_URL}/api/notifications/${id}${params}`, {
         method: "DELETE",
       }).catch((e) => console.warn("[useNotifications] dismiss error:", e));
     },

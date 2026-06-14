@@ -148,7 +148,11 @@ def list_scan_logs(user_id: Optional[str] = Query(None, alias="user_id")):
 
 
 @router.post("/scan", response_model=ScanLogResponse)
-def create_scan_log(body: ScanLogRequest, user_id: Optional[str] = Query(None, alias="user_id")):
+def create_scan_log(
+    body: ScanLogRequest, 
+    background_tasks: BackgroundTasks,
+    user_id: Optional[str] = Query(None, alias="user_id")
+):
     row = insert_scan_record(user_id, {
         "product_name": body.productName,
         "calories": body.calories,
@@ -160,7 +164,7 @@ def create_scan_log(body: ScanLogRequest, user_id: Optional[str] = Query(None, a
         "score": body.score,
         "status": body.status,
         "date": body.date,
-    })
+    }, bg_tasks=background_tasks)
     return _scan_response(row)
 
 
