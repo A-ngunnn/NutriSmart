@@ -308,14 +308,18 @@ def get_health_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
 
 
 def get_service_status() -> Dict[str, Any]:
+    from services.rag_service import check_chroma_status
+
     status = {
         "status": "ok",
         "service": "NutriSmart AI Backend",
         "version": "1.0.0",
         "database": "ok",
-        "model": settings.medgemma_model,
-        "ai_api_key_set": bool(settings.medgemma_api_key),
+        "model": "google/gemma-2-9b-it (RAG)",
+        "ai_api_key_set": bool(settings.openrouter_api_key),
     }
+    
+    # Check Database
     try:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
@@ -323,7 +327,16 @@ def get_service_status() -> Dict[str, Any]:
         status["status"] = "error"
         status["database"] = "error"
         status["database_error"] = str(exc)
-    if not settings.medgemma_api_key:
+        
+    # Check ChromaDB
+    chroma_status = check_chroma_status()
+    status["chromadb"] = chroma_status
+    if chroma_status["status"] != "ok":
+        status["status"] = "error"
+        
+    # Check API Key
+    if not settings.openrouter_api_key:
         status["status"] = "error"
         status["ai_api_key_set"] = False
+        
     return status

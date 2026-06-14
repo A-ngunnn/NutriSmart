@@ -5,8 +5,6 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     openrouter_api_key: str = ""
-    medgemma_api_key: str = ""
-    gemini_api_key: str = ""
     supabase_url: str = ""
     supabase_anon_key: str = ""
     chroma_persist_dir: str = "./chroma_data"

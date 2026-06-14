@@ -46,10 +46,10 @@ def _get_headers():
 
 # ── Helper: call OpenRouter ─────────────────────────────────────────────────
 
-async def _call_openrouter(messages: list[dict], temperature: float = 0.3) -> str:
+async def _call_openrouter(messages: list[dict], temperature: float = 0.3, model: Optional[str] = None) -> str:
     """Send a chat completion request to OpenRouter and return the text response."""
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": model or OPENROUTER_MODEL,
         "messages": messages,
         "temperature": temperature,
     }
@@ -282,7 +282,8 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> 
 
     messages.append({"role": "user", "content": user_message})
 
-    return await _call_openrouter(messages, temperature=0.4)
+    # 🌟 ใช้ MedGemma (google/gemma-2-9b-it) สำหรับ RAG Chatbot ตามรายงาน
+    return await _call_openrouter(messages, temperature=0.4, model="google/gemma-2-9b-it")
 
 
 # ── 4. Meal Analysis (Food Image + User Text → Estimated Calories JSON) ──────
