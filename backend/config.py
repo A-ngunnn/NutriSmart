@@ -4,6 +4,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
+    gemini_api_key: str = ""
     openrouter_api_key: str = ""
     supabase_url: str = ""
     supabase_anon_key: str = ""

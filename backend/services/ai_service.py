@@ -31,11 +31,19 @@ logging.basicConfig(level=logging.INFO)
 import httpx
 from fastapi import HTTPException
 
-# ── OpenRouter Configuration ────────────────────────────────────────────────
+# ── AI Configuration ────────────────────────────────────────────────────────
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.5-flash"
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
-def _get_headers():
+DEFAULT_VISION_MODEL = "gemini-2.5-flash"  # Route to Google direct
+DEFAULT_CHAT_MODEL = "google/gemma-2-9b-it" # Route to OpenRouter
+
+def _get_headers(is_gemini: bool = False):
+    if is_gemini:
+        return {
+            "Authorization": f"Bearer {settings.gemini_api_key}",
+            "Content-Type": "application/json",
+        }
     return {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
@@ -46,10 +54,16 @@ def _get_headers():
 
 # ── Helper: call OpenRouter ─────────────────────────────────────────────────
 
-async def _call_openrouter(messages: list[dict], temperature: float = 0.3, model: Optional[str] = None) -> str:
-    """Send a chat completion request to OpenRouter and return the text response."""
+async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Optional[str] = None) -> str:
+    """Send a chat completion request to the appropriate AI provider (Google Gemini or OpenRouter)."""
+    target_model = model or DEFAULT_VISION_MODEL
+    is_gemini = "gemini" in target_model.lower() and not target_model.startswith("google/")
+    
+    base_url = GEMINI_API_BASE_URL if is_gemini else OPENROUTER_BASE_URL
+    headers = _get_headers(is_gemini=is_gemini)
+    
     payload = {
-        "model": model or OPENROUTER_MODEL,
+        "model": target_model,
         "messages": messages,
         "temperature": temperature,
     }
@@ -57,17 +71,17 @@ async def _call_openrouter(messages: list[dict], temperature: float = 0.3, model
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                OPENROUTER_BASE_URL,
-                headers=_get_headers(),
+                base_url,
+                headers=headers,
                 json=payload,
             )
             
             if response.status_code != 200:
                 error_detail = response.text[:500]
-                logger.error(f"OpenRouter API error {response.status_code}: {error_detail}")
+                logger.error(f"AI API error {response.status_code}: {error_detail}")
                 raise HTTPException(
                     status_code=502, 
-                    detail=f"OpenRouter API Error: ได้รับ Status Code {response.status_code} จากระบบ AI"
+                    detail=f"AI API Error: ได้รับ Status Code {response.status_code} จากระบบ AI"
                 )
                 
             data = response.json()
@@ -75,12 +89,12 @@ async def _call_openrouter(messages: list[dict], temperature: float = 0.3, model
             try:
                 return data["choices"][0]["message"]["content"]
             except (KeyError, IndexError) as e:
-                logger.error(f"Unexpected OpenRouter response structure: {data}")
-                raise HTTPException(status_code=502, detail="OpenRouter API Error: โครงสร้างข้อมูลที่ตอบกลับมาไม่ถูกต้อง")
+                logger.error(f"Unexpected AI response structure: {data}")
+                raise HTTPException(status_code=502, detail="AI API Error: โครงสร้างข้อมูลที่ตอบกลับมาไม่ถูกต้อง")
                 
     except httpx.RequestError as exc:
-        logger.error(f"HTTP Request failed when calling OpenRouter: {exc}")
-        raise HTTPException(status_code=502, detail="OpenRouter API Error: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้")
+        logger.error(f"HTTP Request failed when calling AI API: {exc}")
+        raise HTTPException(status_code=502, detail="AI API Error: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้")
 
 
 def _parse_json_response(text: str) -> dict:
@@ -220,7 +234,7 @@ async def analyze_label_image(image_base64: str, mime_type: str = "image/jpeg") 
         },
     ]
 
-    text = await _call_openrouter(messages, temperature=0.1)
+    text = await _call_ai_api(messages, temperature=0.1)
     return _parse_json_response(text)
 
 
@@ -259,7 +273,7 @@ async def analyze_manual_input(
         {"role": "user", "content": user_prompt},
     ]
 
-    text = await _call_openrouter(messages, temperature=0.1)
+    text = await _call_ai_api(messages, temperature=0.1)
     return _parse_json_response(text)
 
 
@@ -282,8 +296,8 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> 
 
     messages.append({"role": "user", "content": user_message})
 
-    # 🌟 ใช้ MedGemma (google/gemma-2-9b-it) สำหรับ RAG Chatbot ตามรายงาน
-    return await _call_openrouter(messages, temperature=0.4, model="google/gemma-2-9b-it")
+    # 🌟 ใช้ MedGemma (google/gemma-2-9b-it) ผ่าน OpenRouter สำหรับ RAG Chatbot ตามรายงาน
+    return await _call_ai_api(messages, temperature=0.4, model=DEFAULT_CHAT_MODEL)
 
 
 # ── 4. Meal Analysis (Food Image + User Text → Estimated Calories JSON) ──────
@@ -311,7 +325,7 @@ async def analyze_food_meal(image_base64: str, user_menu_text: str, mime_type: s
         },
     ]
 
-    text = await _call_openrouter(messages, temperature=0.3)
+    text = await _call_ai_api(messages, temperature=0.3)
     return _parse_json_response(text)
 
 
@@ -340,5 +354,5 @@ async def estimate_food_nutrition(food_name: str) -> dict:
         },
     ]
 
-    text = await _call_openrouter(messages, temperature=0.3)
+    text = await _call_ai_api(messages, temperature=0.3)
     return _parse_json_response(text)
