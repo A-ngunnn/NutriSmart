@@ -76,8 +76,8 @@ def _food_response(row: dict) -> FoodLogResponse:
         protein=float(row["protein"]),
         carbs=float(row["carbs"]),
         fat=float(row["fat"]),
-        date=row["date"],
-        created_at=row["created_at"],
+        date=str(row["date"]),
+        created_at=str(row["created_at"]),
     )
 
 
@@ -94,8 +94,8 @@ def _scan_response(row: dict) -> ScanLogResponse:
         sodium=float(row["sodium"]),
         score=float(row["score"]),
         status=row["status"],
-        date=row["date"],
-        created_at=row["created_at"],
+        date=str(row["date"]),
+        created_at=str(row["created_at"]),
     )
 
 
@@ -104,8 +104,8 @@ def _water_response(row: dict) -> WaterLogResponse:
         id=row["id"],
         user_id=row["user_id"],
         amount=float(row["amount"]),
-        date=row["date"],
-        created_at=row["created_at"],
+        date=str(row["date"]),
+        created_at=str(row["created_at"]),
     )
 
 

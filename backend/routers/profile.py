@@ -36,13 +36,13 @@ def _storage_profile(profile: ProfileRequest) -> dict:
 
 def _client_profile(raw: dict) -> ProfileResponse:
     return ProfileResponse(
-        name=raw.get("name", ""),
-        age=raw.get("age", ""),
-        gender=raw.get("gender", "male"),
-        weight=raw.get("weight", ""),
-        height=raw.get("height", ""),
-        activityLevel=raw.get("activity_level", "sedentary"),
-        goal=raw.get("goal", "maintain"),
+        name=str(raw.get("name", "")),
+        age=str(raw.get("age") or ""),
+        gender=str(raw.get("gender") or "male"),
+        weight=str(raw.get("weight") or ""),
+        height=str(raw.get("height") or ""),
+        activityLevel=str(raw.get("activity_level") or "sedentary"),
+        goal=str(raw.get("goal") or "maintain"),
     )
 
 
