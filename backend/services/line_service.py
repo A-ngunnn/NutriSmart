@@ -229,6 +229,7 @@ async def send_line_notification(
         return False
     except Exception as exc:
         # กันระบบพังจาก edge case ที่ไม่คาดคิด
+        print(f"🚨 NOTIFICATION CRASHED: {str(exc)}")
         logger.error("[LINE] Unexpected error: %s", exc, exc_info=True)
         return False
 
@@ -273,4 +274,5 @@ async def send_line_if_available(
             priority=priority,
         )
     except Exception as exc:
+        print(f"🚨 NOTIFICATION CRASHED: {str(exc)}")
         logger.warning("[LINE] send_line_if_available failed (non-fatal): %s", exc)

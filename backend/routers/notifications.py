@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 
 from config import get_settings
@@ -216,7 +216,10 @@ async def dismiss_notification(
 
 
 @router.post("/trigger-summary", response_model=TriggerSummaryResponse)
-async def trigger_weekly_summary(body: TriggerSummaryRequest):
+async def trigger_weekly_summary(
+    body: TriggerSummaryRequest,
+    background_tasks: BackgroundTasks,
+):
     """
     เดโมสำหรับการนำเสนอ:
     - ดึง Food Logs ย้อนหลัง 7 วัน
@@ -251,8 +254,9 @@ async def trigger_weekly_summary(body: TriggerSummaryRequest):
             body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
             emoji="📊",
         )
-        # ── ส่ง LINE Push ด้วย ────────────────────────────────────────────────
-        await send_line_if_available(
+        # ── ส่ง LINE Push ด้วย (Background) ──────────────────────────────────
+        background_tasks.add_task(
+            send_line_if_available,
             user_id=uid,
             title="ยังไม่มีข้อมูลอาหาร 7 วันที่ผ่านมา",
             body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
@@ -326,8 +330,9 @@ async def trigger_weekly_summary(body: TriggerSummaryRequest):
         emoji="📊",
     )
 
-    # ── ส่ง LINE Push ควบคู่กับการบันทึกในเว็บ ──────────────────────────────
-    await send_line_if_available(
+    # ── ส่ง LINE Push ควบคู่กับการบันทึกในเว็บ (Background) ────────────────
+    background_tasks.add_task(
+        send_line_if_available,
         user_id=uid,
         title="รายงานสุขภาพประจำสัปดาห์ 📊",
         body=ai_summary,

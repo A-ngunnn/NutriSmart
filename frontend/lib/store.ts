@@ -174,8 +174,24 @@ export const useAppStore = create<AppState>()(
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) return
 
-        const created = await createFoodLog({ ...entry, date: todayKey() }, session.user.id)
-        set((state) => ({ foodEntries: [created, ...state.foodEntries] }))
+        // 🚀 Optimistic Update: โชว์ข้อมูลบนหน้าจอทันที
+        const tempId = `temp-${Date.now()}`
+        const optimisticEntry: FoodEntry = { ...entry, id: tempId, date: todayKey() }
+        set((state) => ({ foodEntries: [optimisticEntry, ...state.foodEntries] }))
+
+        try {
+          const created = await createFoodLog({ ...entry, date: todayKey() }, session.user.id)
+          // 🔄 แทนที่ tempId ด้วยของจริงจากเซิร์ฟเวอร์
+          set((state) => ({ 
+            foodEntries: state.foodEntries.map((e) => (e.id === tempId ? created : e)) 
+          }))
+        } catch (error) {
+          console.error("Failed to add food log:", error)
+          // 🔙 Rollback ถ้ายิง API ไม่สำเร็จ
+          set((state) => ({ 
+            foodEntries: state.foodEntries.filter((e) => e.id !== tempId) 
+          }))
+        }
       },
 
       removeFoodEntry: async (id) => {
@@ -205,8 +221,22 @@ export const useAppStore = create<AppState>()(
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) return
 
-        const created = await createScanLog({ ...scan, date: todayKey() }, session.user.id)
-        set((state) => ({ scanHistory: [created as ScanRecord, ...state.scanHistory] }))
+        // 🚀 Optimistic Update
+        const tempId = `temp-${Date.now()}`
+        const optimisticScan: ScanRecord = { ...scan, id: tempId, date: todayKey() }
+        set((state) => ({ scanHistory: [optimisticScan, ...state.scanHistory] }))
+
+        try {
+          const created = await createScanLog({ ...scan, date: todayKey() }, session.user.id)
+          set((state) => ({ 
+            scanHistory: state.scanHistory.map((e) => (e.id === tempId ? (created as ScanRecord) : e)) 
+          }))
+        } catch (error) {
+          console.error("Failed to add scan log:", error)
+          set((state) => ({ 
+            scanHistory: state.scanHistory.filter((e) => e.id !== tempId) 
+          }))
+        }
       },
 
       addWaterEntry: async (amount) => {
@@ -214,8 +244,22 @@ export const useAppStore = create<AppState>()(
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) return
 
-        const created = await createWaterLog(amount, todayKey(), session.user.id)
-        set((state) => ({ waterEntries: [created, ...state.waterEntries] }))
+        // 🚀 Optimistic Update
+        const tempId = `temp-${Date.now()}`
+        const optimisticEntry: WaterEntry = { id: tempId, amount, date: todayKey() }
+        set((state) => ({ waterEntries: [optimisticEntry, ...state.waterEntries] }))
+
+        try {
+          const created = await createWaterLog(amount, todayKey(), session.user.id)
+          set((state) => ({ 
+            waterEntries: state.waterEntries.map((e) => (e.id === tempId ? created : e)) 
+          }))
+        } catch (error) {
+          console.error("Failed to add water log:", error)
+          set((state) => ({ 
+            waterEntries: state.waterEntries.filter((e) => e.id !== tempId) 
+          }))
+        }
       },
 
       removeWaterEntry: async (id) => {

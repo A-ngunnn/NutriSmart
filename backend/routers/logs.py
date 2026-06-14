@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from services.storage_service import (
@@ -110,13 +110,17 @@ def _water_response(row: dict) -> WaterLogResponse:
 
 
 @router.get("/food", response_model=List[FoodLogResponse])
-async def list_food_logs(user_id: Optional[str] = Query(None, alias="user_id")):
+def list_food_logs(user_id: Optional[str] = Query(None, alias="user_id")):
     rows = get_food_entries(user_id)
     return [_food_response(row) for row in rows]
 
 
 @router.post("/food", response_model=FoodLogResponse)
-async def create_food_log(body: FoodLogRequest, user_id: Optional[str] = Query(None, alias="user_id")):
+def create_food_log(
+    body: FoodLogRequest, 
+    background_tasks: BackgroundTasks,
+    user_id: Optional[str] = Query(None, alias="user_id")
+):
     row = insert_food_entry(user_id, {
         "name": body.name,
         "meal_type": body.mealType,
@@ -125,12 +129,12 @@ async def create_food_log(body: FoodLogRequest, user_id: Optional[str] = Query(N
         "carbs": body.carbs,
         "fat": body.fat,
         "date": body.date,
-    })
+    }, bg_tasks=background_tasks)
     return _food_response(row)
 
 
 @router.delete("/food/{entry_id}")
-async def remove_food_log(entry_id: str, user_id: Optional[str] = Query(None, alias="user_id")):
+def remove_food_log(entry_id: str, user_id: Optional[str] = Query(None, alias="user_id")):
     ok = delete_food_entry(user_id, entry_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Food entry not found")
@@ -138,13 +142,13 @@ async def remove_food_log(entry_id: str, user_id: Optional[str] = Query(None, al
 
 
 @router.get("/scan", response_model=List[ScanLogResponse])
-async def list_scan_logs(user_id: Optional[str] = Query(None, alias="user_id")):
+def list_scan_logs(user_id: Optional[str] = Query(None, alias="user_id")):
     rows = get_scan_history(user_id)
     return [_scan_response(row) for row in rows]
 
 
 @router.post("/scan", response_model=ScanLogResponse)
-async def create_scan_log(body: ScanLogRequest, user_id: Optional[str] = Query(None, alias="user_id")):
+def create_scan_log(body: ScanLogRequest, user_id: Optional[str] = Query(None, alias="user_id")):
     row = insert_scan_record(user_id, {
         "product_name": body.productName,
         "calories": body.calories,
@@ -161,19 +165,23 @@ async def create_scan_log(body: ScanLogRequest, user_id: Optional[str] = Query(N
 
 
 @router.get("/water", response_model=List[WaterLogResponse])
-async def list_water_logs(user_id: Optional[str] = Query(None, alias="user_id")):
+def list_water_logs(user_id: Optional[str] = Query(None, alias="user_id")):
     rows = get_water_entries(user_id)
     return [_water_response(row) for row in rows]
 
 
 @router.post("/water", response_model=WaterLogResponse)
-async def create_water_log(body: WaterLogRequest, user_id: Optional[str] = Query(None, alias="user_id")):
-    row = insert_water_entry(user_id, body.amount, body.date)
+def create_water_log(
+    body: WaterLogRequest, 
+    background_tasks: BackgroundTasks,
+    user_id: Optional[str] = Query(None, alias="user_id")
+):
+    row = insert_water_entry(user_id, body.amount, body.date, bg_tasks=background_tasks)
     return _water_response(row)
 
 
 @router.delete("/water/{entry_id}")
-async def remove_water_log(entry_id: str, user_id: Optional[str] = Query(None, alias="user_id")):
+def remove_water_log(entry_id: str, user_id: Optional[str] = Query(None, alias="user_id")):
     ok = delete_water_entry(user_id, entry_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Water entry not found")

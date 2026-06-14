@@ -86,7 +86,7 @@ def get_food_entries(user_id: Optional[str] = None, start_date: Optional[str] = 
         return [_model_to_dict(row) for row in rows]
 
 
-def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any]) -> Dict[str, Any]:
+def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any], bg_tasks=None) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
     now = datetime.utcnow().isoformat()
     entry_id = str(uuid.uuid4())
@@ -111,7 +111,7 @@ def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any]) -> Dict[str
 
     # ── Sodium Auto-Trigger ───────────────────────────────────────────────────
     # ตรวจสอบโซเดียมรวมจาก ScanHistory ของวันนี้ แล้วแจ้งเตือนถ้าเกินเกณฑ์
-    _check_sodium_and_notify(user_id, entry_date)
+    _check_sodium_and_notify(user_id, entry_date, bg_tasks=bg_tasks)
 
     return result
 
@@ -119,7 +119,7 @@ def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any]) -> Dict[str
 # ── Sodium Auto-Trigger Helper ───────────────────────────────────────────────
 SODIUM_DAILY_LIMIT_MG = 2_000.0
 
-def _check_sodium_and_notify(user_id: str, check_date: str) -> None:
+def _check_sodium_and_notify(user_id: str, date_str: str, bg_tasks=None) -> None:
     """
     คำนวณโซเดียมรวมจาก ScanHistory ของวันที่ระบุ
     ถ้าเกิน 2,000 mg → INSERT notification เตือน (ไม่เตือนซ้ำวันเดียวกัน)
@@ -178,25 +178,23 @@ def _check_sodium_and_notify(user_id: str, check_date: str) -> None:
             db.add(notif)
             db.commit()
 
-            # ── ส่ง LINE Push (fire-and-forget, non-blocking) ────────────────
+            # ── ส่ง LINE Push (Background Task Native by FastAPI) ────────────────
             try:
-                import asyncio
                 from services.line_service import send_line_if_available
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(
-                        send_line_if_available(
-                            user_id=user_id,
-                            title=notif_title,
-                            body=notif_body,
-                            emoji="🧂",
-                            category="goal",
-                            priority="high",
-                        )
+                
+                if bg_tasks:
+                    bg_tasks.add_task(
+                        send_line_if_available,
+                        user_id=user_id,
+                        title=notif_title,
+                        body=notif_body,
+                        emoji="🧂",
+                        category="goal",
+                        priority="high",
                     )
             except Exception as line_exc:
                 logging.getLogger("nutrismart.storage").warning(
-                    "[LINE] Sodium LINE push failed (non-fatal): %s", line_exc
+                    "[LINE] Sodium LINE push failed to queue (non-fatal): %s", line_exc
                 )
 
     except Exception as exc:
@@ -232,7 +230,7 @@ def get_water_entries(user_id: Optional[str] = None, start_date: Optional[str] =
         return [_model_to_dict(row) for row in rows]
 
 
-def insert_water_entry(user_id: Optional[str], amount: float, entry_date: Optional[str] = None) -> Dict[str, Any]:
+def insert_water_entry(user_id: Optional[str], amount: float, entry_date: Optional[str] = None, bg_tasks=None) -> Dict[str, Any]:
     user_id = user_id or DEFAULT_USER_ID
     now = datetime.utcnow().isoformat()
     entry_id = str(uuid.uuid4())
