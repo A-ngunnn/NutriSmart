@@ -1,18 +1,23 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DEMO_NOTIFICATIONS,
   NutriNotification,
   NotificationCategory,
   NotificationStatus,
   PRIORITY_WEIGHT,
 } from "./notification.types";
 
+// ─── Config ────────────────────────────────────────────────────────────────────
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
+
 // ─── State Shape ──────────────────────────────────────────────────────────────
 
 interface NotificationState {
   items: NutriNotification[];
+  loading: boolean;
+  error: string | null;
 }
 
 // ─── Return Type ──────────────────────────────────────────────────────────────
@@ -22,6 +27,10 @@ export interface UseNotificationsReturn {
   notifications: NutriNotification[];
   /** Unread count (badge number) */
   unreadCount: number;
+  /** True while fetching from backend */
+  loading: boolean;
+  /** Error message if fetch failed */
+  error: string | null;
   /** Mark a single notification as read */
   markAsRead: (id: string) => void;
   /** Mark all unread as read */
@@ -36,19 +45,97 @@ export interface UseNotificationsReturn {
   activeCategory: NotificationCategory | undefined;
   /** Add a new notification programmatically (e.g. from push or polling) */
   push: (notification: Omit<NutriNotification, "id" | "createdAt" | "status">) => void;
+  /** Re-fetch from backend */
+  refresh: () => void;
+}
+
+// ─── Map backend row → NutriNotification ─────────────────────────────────────
+
+interface BackendNotification {
+  id: string;
+  user_id: string;
+  category: NotificationCategory;
+  priority: "low" | "medium" | "high";
+  title: string;
+  body: string;
+  emoji: string;
+  is_read: boolean;
+  created_at: string;
+  read_at?: string;
+}
+
+function mapBackend(row: BackendNotification): NutriNotification {
+  return {
+    id: row.id,
+    category: row.category,
+    priority: row.priority,
+    status: row.is_read ? "read" : "unread",
+    title: row.title,
+    body: row.body,
+    emoji: row.emoji,
+    createdAt: row.created_at,
+    readAt: row.read_at,
+  };
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useNotifications(
-  seed: NutriNotification[] = DEMO_NOTIFICATIONS
-): UseNotificationsReturn {
-  const [state, setState] = useState<NotificationState>({ items: seed });
+export function useNotifications(userId?: string): UseNotificationsReturn {
+  const [state, setState] = useState<NotificationState>({
+    items: [],
+    loading: true,
+    error: null,
+  });
   const [activeCategory, setActiveCategory] = useState<
     NotificationCategory | undefined
   >(undefined);
 
-  // ── Derived ──────────────────────────────────────────────────────────────────
+  const abortRef = useRef<AbortController | null>(null);
+
+  // ── Fetch from backend ────────────────────────────────────────────────────
+
+  const fetchNotifications = useCallback(async () => {
+    // ยกเลิก request เก่าถ้ายังค้างอยู่
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+      const res = await fetch(`${BACKEND_URL}/api/notifications${params}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const rows: BackendNotification[] = await res.json();
+      setState({
+        items: rows.map(mapBackend),
+        loading: false,
+        error: null,
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      console.warn("[useNotifications] fetch error:", msg);
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: msg,
+      }));
+    }
+  }, [userId]);
+
+  // โหลดครั้งแรกเมื่อ component mount หรือ userId เปลี่ยน
+  useEffect(() => {
+    fetchNotifications();
+    return () => abortRef.current?.abort();
+  }, [fetchNotifications]);
+
+  // ── Derived ──────────────────────────────────────────────────────────────
 
   const notifications = useMemo(() => {
     const visible = state.items.filter((n) => {
@@ -78,11 +165,12 @@ export function useNotifications(
     [state.items]
   );
 
-  // ── Mutators ─────────────────────────────────────────────────────────────────
+  // ── Mutators (Local state + API call) ────────────────────────────────────
 
-  const updateStatus = useCallback(
+  const updateLocalStatus = useCallback(
     (id: string, status: NotificationStatus, extra?: Partial<NutriNotification>) =>
       setState((prev) => ({
+        ...prev,
         items: prev.items.map((n) =>
           n.id === id ? { ...n, status, ...extra } : n
         ),
@@ -91,35 +179,56 @@ export function useNotifications(
   );
 
   const markAsRead = useCallback(
-    (id: string) =>
-      updateStatus(id, "read", { readAt: new Date().toISOString() }),
-    [updateStatus]
+    (id: string) => {
+      // Optimistic update
+      updateLocalStatus(id, "read", { readAt: new Date().toISOString() });
+      // Persist to backend
+      const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+      fetch(`${BACKEND_URL}/api/notifications/${id}/read${params}`, {
+        method: "PUT",
+      }).catch((e) => console.warn("[useNotifications] markAsRead error:", e));
+    },
+    [updateLocalStatus, userId]
   );
 
-  const markAllAsRead = useCallback(
-    () =>
-      setState((prev) => ({
-        items: prev.items.map((n) =>
-          n.status === "unread"
-            ? { ...n, status: "read", readAt: new Date().toISOString() }
-            : n
-        ),
-      })),
-    []
-  );
+  const markAllAsRead = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      items: prev.items.map((n) =>
+        n.status === "unread"
+          ? { ...n, status: "read", readAt: new Date().toISOString() }
+          : n
+      ),
+    }));
+    // เรียก API ทีละตัวสำหรับของที่ยังไม่ได้อ่าน
+    state.items
+      .filter((n) => n.status === "unread")
+      .forEach((n) => {
+        const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+        fetch(`${BACKEND_URL}/api/notifications/${n.id}/read${params}`, {
+          method: "PUT",
+        }).catch(() => {});
+      });
+  }, [state.items, userId]);
 
   const dismiss = useCallback(
-    (id: string) => updateStatus(id, "dismissed"),
-    [updateStatus]
+    (id: string) => {
+      updateLocalStatus(id, "dismissed");
+      const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+      fetch(`${BACKEND_URL}/api/notifications/${id}${params}`, {
+        method: "DELETE",
+      }).catch((e) => console.warn("[useNotifications] dismiss error:", e));
+    },
+    [updateLocalStatus, userId]
   );
 
-  const dismissAll = useCallback(
-    () =>
-      setState((prev) => ({
-        items: prev.items.map((n) => ({ ...n, status: "dismissed" })),
-      })),
-    []
-  );
+  const dismissAll = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      items: prev.items.map((n) => ({ ...n, status: "dismissed" })),
+    }));
+    // ไม่ bulk delete ฝั่ง API เพื่อรักษา audit trail
+  }, []);
 
   const filterByCategory = useCallback(
     (category: NotificationCategory | undefined) =>
@@ -135,7 +244,7 @@ export function useNotifications(
         createdAt: new Date().toISOString(),
         status: "unread",
       };
-      setState((prev) => ({ items: [newItem, ...prev.items] }));
+      setState((prev) => ({ ...prev, items: [newItem, ...prev.items] }));
     },
     []
   );
@@ -143,6 +252,8 @@ export function useNotifications(
   return {
     notifications,
     unreadCount,
+    loading: state.loading,
+    error: state.error,
     markAsRead,
     markAllAsRead,
     dismiss,
@@ -150,5 +261,6 @@ export function useNotifications(
     filterByCategory,
     activeCategory,
     push,
+    refresh: fetchNotifications,
   };
 }

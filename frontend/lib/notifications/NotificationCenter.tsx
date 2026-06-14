@@ -29,7 +29,7 @@ function NotificationItem({
   onRead: (id: string) => void;
   onDismiss: (id: string) => void;
 }) {
-  const cfg = CATEGORY_CONFIG[n.category];
+  const cfg = CATEGORY_CONFIG[n.category as NotificationCategory];
   const isUnread = n.status === "unread";
 
   return (
@@ -156,7 +156,7 @@ function NotificationItem({
               fontWeight: 500,
             }}
           >
-            {CATEGORY_CONFIG[n.category].label}
+            {CATEGORY_CONFIG[n.category as NotificationCategory].label}
           </span>
 
           {n.action && (
@@ -233,16 +233,17 @@ const CAT_LABELS: Record<string, string> = {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 interface NotificationCenterProps {
-  /** Custom seed data (leave empty to use demo data) */
-  initialNotifications?: NutriNotification[];
+  /** Supabase user ID — ถ้าไม่ส่งมาจะแสดงการแจ้งเตือนของ default user */
+  initialUserId?: string;
 }
 
 export default function NotificationCenter({
-  initialNotifications,
+  initialUserId,
 }: NotificationCenterProps) {
   const {
     notifications,
     unreadCount,
+    loading,
     markAsRead,
     markAllAsRead,
     dismiss,
@@ -250,7 +251,7 @@ export default function NotificationCenter({
     filterByCategory,
     activeCategory,
     push,
-  } = useNotifications(initialNotifications);
+  } = useNotifications(initialUserId);
 
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -281,6 +282,10 @@ export default function NotificationCenter({
           0%   { transform: scale(1); }
           50%  { transform: scale(1.4); }
           100% { transform: scale(1); }
+        }
+        @keyframes nutri-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
         }
       `}</style>
 
@@ -493,7 +498,32 @@ export default function NotificationCenter({
 
             {/* List */}
             <div style={{ overflowY: "auto", flex: 1 }}>
-              {notifications.length === 0 ? (
+              {loading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "48px 24px",
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      border: "3px solid #E5E7EB",
+                      borderTop: "3px solid #1D9E75",
+                      borderRadius: "50%",
+                      animation: "nutri-spin 0.7s linear infinite",
+                    }}
+                  />
+                  <p style={{ fontSize: 13, color: "var(--nutri-text-muted, #9CA3AF)", margin: 0 }}>
+                    กำลังโหลดการแจ้งเตือน...
+                  </p>
+                </div>
+              ) : notifications.length === 0 ? (
                 <div
                   style={{
                     display: "flex",

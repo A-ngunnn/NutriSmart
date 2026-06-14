@@ -107,7 +107,80 @@ def insert_food_entry(user_id: Optional[str], entry: Dict[str, Any]) -> Dict[str
         db.add(new_entry)
         db.commit()
         db.refresh(new_entry)
-        return _model_to_dict(new_entry)
+        result = _model_to_dict(new_entry)
+
+    # ── Sodium Auto-Trigger ───────────────────────────────────────────────────
+    # ตรวจสอบโซเดียมรวมจาก ScanHistory ของวันนี้ แล้วแจ้งเตือนถ้าเกินเกณฑ์
+    _check_sodium_and_notify(user_id, entry_date)
+
+    return result
+
+
+# ── Sodium Auto-Trigger Helper ───────────────────────────────────────────────
+SODIUM_DAILY_LIMIT_MG = 2_000.0
+
+def _check_sodium_and_notify(user_id: str, check_date: str) -> None:
+    """
+    คำนวณโซเดียมรวมจาก ScanHistory ของวันที่ระบุ
+    ถ้าเกิน 2,000 mg → INSERT notification เตือน (ไม่เตือนซ้ำวันเดียวกัน)
+    """
+    try:
+        with SessionLocal() as db:
+            # คำนวณโซเดียมรวมจาก scan_history วันนี้
+            scans = (
+                db.query(models.ScanHistory)
+                .filter(
+                    models.ScanHistory.user_id == user_id,
+                    models.ScanHistory.date == check_date,
+                )
+                .all()
+            )
+            total_sodium = sum(float(s.sodium or 0) for s in scans)
+
+            if total_sodium < SODIUM_DAILY_LIMIT_MG:
+                return  # ยังไม่เกินเกณฑ์ ไม่ต้องแจ้งเตือน
+
+            # ── เช็ก Dedup: ถ้าวันนี้เคยแจ้งเตือนโซเดียมไปแล้ว ข้ามได้เลย ──
+            already_notified = (
+                db.query(models.Notification)
+                .filter(
+                    models.Notification.user_id == user_id,
+                    models.Notification.category == "goal",
+                    models.Notification.title.like("%โซเดียม%"),
+                    models.Notification.created_at >= check_date,  # วันเดียวกัน
+                )
+                .first()
+            )
+            if already_notified:
+                return  # เคยเตือนไปแล้ววันนี้
+
+            # ── INSERT notification ──────────────────────────────────────────
+            nid = str(uuid.uuid4())
+            now = datetime.utcnow().isoformat()
+            notif = models.Notification(
+                id=nid,
+                user_id=user_id,
+                category="goal",
+                priority="high",
+                title="⚠️ โซเดียมเกินเกณฑ์วันนี้!",
+                body=(
+                    f"วันนี้คุณได้รับโซเดียมสะสม {total_sodium:.0f} mg "
+                    f"ซึ่งเกินค่าแนะนำ {SODIUM_DAILY_LIMIT_MG:.0f} mg/วัน "
+                    "แนะนำให้มื้อต่อไปเลือกอาหารรสอ่อนและลดเครื่องปรุงนะคะ 🧂"
+                ),
+                emoji="🧂",
+                is_read=False,
+                is_dismissed=False,
+                created_at=now,
+            )
+            db.add(notif)
+            db.commit()
+    except Exception as exc:
+        # ไม่ให้ error ของ notification ทำให้ food log พัง
+        import logging
+        logging.getLogger("nutrismart.storage").warning(
+            "Sodium notify error (non-fatal): %s", exc
+        )
 
 
 def delete_food_entry(user_id: Optional[str], entry_id: str) -> bool:

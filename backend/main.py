@@ -13,7 +13,7 @@ from config import get_settings
 from services.rag_service import load_knowledge
 from services.storage_service import initialize_storage
 from routers import analyze, chat
-from routers import dashboard, profile, logs, health_api
+from routers import dashboard, profile, logs, health_api, notifications
 
 settings = get_settings()
 
@@ -62,6 +62,7 @@ app.include_router(dashboard.router)
 app.include_router(profile.router)
 app.include_router(logs.router)
 app.include_router(health_api.router)
+app.include_router(notifications.router)
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

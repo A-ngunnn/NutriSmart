@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float
+from sqlalchemy import Boolean, Column, String, Float
 from database import Base
 
 class Profile(Base):
@@ -48,4 +48,19 @@ class WaterLog(Base):
     user_id = Column(String, index=True, nullable=False)
     amount = Column(Float, nullable=False)
     date = Column(String, index=True, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, index=True, nullable=False)
+    category = Column(String, nullable=False)        # daily | goal | ai | system
+    priority = Column(String, nullable=False)        # low | medium | high
+    title = Column(String, nullable=False)
+    body = Column(String, nullable=False)
+    emoji = Column(String, nullable=False, default="🔔")
+    is_read = Column(Boolean, nullable=False, default=False)
+    is_dismissed = Column(Boolean, nullable=False, default=False)
+    read_at = Column(String, nullable=True)
     created_at = Column(String, nullable=False)

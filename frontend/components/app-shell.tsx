@@ -26,6 +26,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [userId, setUserId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     setMounted(true)
@@ -36,6 +37,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (!session) {
         router.push("/")
       } else {
+        setUserId(session.user.id)
         try {
           await fetchUserData(session.user.id)
         } catch (error) {
@@ -48,9 +50,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!session) {
+        setUserId(undefined)
         clearState()
         router.push("/")
       } else {
+        setUserId(session.user.id)
         try {
           await fetchUserData(session.user.id)
         } catch (error) {
@@ -156,7 +160,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* Right: bell + user + dropdown */}
           <div className="flex items-center gap-2 md:gap-3">
-            <NotificationCenter />
+            <NotificationCenter initialUserId={userId} />
             
             {/* Mobile: avatar dropdown */}
             <div className="md:hidden">
