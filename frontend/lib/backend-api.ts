@@ -11,7 +11,7 @@ const ENVIRONMENT_BACKEND_URL = (
 ).replace(/\/$/, "");
 
 // 2. ฟังก์ชันคำนวณ URL ปลายทางอย่างแม่นยำ แยก Production และ Localhost เด็ดขาด
-function getBackendUrl(): string {
+export function getBackendUrl(): string {
   // ถ้าตั้งค่าใน Vercel/Environment ไว้ชัดเจน และไม่ใช่การรันในเครื่องตัวเอง ให้ใช้ค่านั้นทันที
   if (ENVIRONMENT_BACKEND_URL && !ENVIRONMENT_BACKEND_URL.includes("localhost") && !ENVIRONMENT_BACKEND_URL.includes("127.0.0.1")) {
     return ENVIRONMENT_BACKEND_URL;
@@ -32,7 +32,7 @@ function getBackendUrl(): string {
 }
 
 // ตัวแปรแกนหลักตัวเดียวที่จะใช้คุยกับ API ทุกฟังก์ชันต่อจากนี้
-const FINAL_BACKEND_URL = getBackendUrl();
+export const FINAL_BACKEND_URL = getBackendUrl();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -226,6 +226,17 @@ export async function analyzeManualWithBackend(data: {
   });
 
   return parseJson<AnalyzeResult>(response);
+}
+
+// ── Analyze: estimate (by name) ─────────────────────────────────────────────
+
+export async function estimateFoodWithBackend(foodName: string): Promise<Partial<AnalyzeResult>> {
+  const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/estimate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ food_name: foodName }),
+  });
+  return parseJson<Partial<AnalyzeResult>>(response);
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
