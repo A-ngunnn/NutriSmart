@@ -28,9 +28,12 @@ settings = get_settings()
 logger = logging.getLogger("nutrismart.ai_service")
 logging.basicConfig(level=logging.INFO)
 
+import httpx
+from fastapi import HTTPException
+
 # ── OpenRouter Configuration ────────────────────────────────────────────────
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"
+OPENROUTER_MODEL = "google/gemini-2.5-flash:free"
 
 def _get_headers():
     return {
@@ -51,26 +54,33 @@ async def _call_openrouter(messages: list[dict], temperature: float = 0.3) -> st
         "temperature": temperature,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            OPENROUTER_BASE_URL,
-            headers=_get_headers(),
-            json=payload,
-        )
-
-    if response.status_code != 200:
-        error_detail = response.text[:500]
-        logger.error(f"OpenRouter API error {response.status_code}: {error_detail}")
-        raise ValueError(f"OpenRouter API returned status {response.status_code}: {error_detail}")
-
-    data = response.json()
-
-    # Extract reply text from OpenAI-compatible response
     try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as e:
-        logger.error(f"Unexpected OpenRouter response structure: {data}")
-        raise ValueError(f"Could not parse OpenRouter response: {e}")
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                OPENROUTER_BASE_URL,
+                headers=_get_headers(),
+                json=payload,
+            )
+            
+            if response.status_code != 200:
+                error_detail = response.text[:500]
+                logger.error(f"OpenRouter API error {response.status_code}: {error_detail}")
+                raise HTTPException(
+                    status_code=502, 
+                    detail=f"OpenRouter API Error: ได้รับ Status Code {response.status_code} จากระบบ AI"
+                )
+                
+            data = response.json()
+            # Extract reply text from OpenAI-compatible response
+            try:
+                return data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError) as e:
+                logger.error(f"Unexpected OpenRouter response structure: {data}")
+                raise HTTPException(status_code=502, detail="OpenRouter API Error: โครงสร้างข้อมูลที่ตอบกลับมาไม่ถูกต้อง")
+                
+    except httpx.RequestError as exc:
+        logger.error(f"HTTP Request failed when calling OpenRouter: {exc}")
+        raise HTTPException(status_code=502, detail="OpenRouter API Error: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้")
 
 
 def _parse_json_response(text: str) -> dict:
