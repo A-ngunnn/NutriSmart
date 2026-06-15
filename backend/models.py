@@ -74,3 +74,18 @@ class ApiUsageLog(Base):
     date = Column(String, index=True, nullable=False)
     created_at = Column(String, nullable=False)
 
+
+class GlobalFoodItem(Base):
+    """
+    ตารางอาหารส่วนกลาง — เก็บค่าเฉลี่ยที่ AI เคยวิเคราะห์ไว้แล้ว ใช้เป็นคลังหา Autocomplete แทน AI
+    """
+    __tablename__ = "global_food_items"
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True, unique=True)
+    calories = Column(Float, nullable=False)
+    protein = Column(Float, nullable=False)
+    carbs = Column(Float, nullable=False)
+    fat = Column(Float, nullable=False)
+    source = Column(String, nullable=False, default="scan")  # "scan" | "manual" | "seed"
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)

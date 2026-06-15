@@ -412,6 +412,21 @@ def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any], bg_tas
         db.refresh(new_record)
         
     _check_sodium_and_notify(user_id, entry_date, bg_tasks)
+
+    # อัปเดต GlobalFoodItem catalog (non-fatal)
+    try:
+        from routers.food_search import upsert_global_food
+        upsert_global_food(
+            name=scan_data["product_name"],
+            calories=float(scan_data["calories"]),
+            protein=float(scan_data["protein"]),
+            carbs=float(scan_data["carbs"]),
+            fat=float(scan_data["total_fat"]),
+            source="scan",
+        )
+    except Exception:
+        pass
+
     return _model_to_dict(new_record)
 
 

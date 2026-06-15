@@ -19,7 +19,7 @@ from config import get_settings
 from services.rag_service import load_knowledge
 from services.storage_service import initialize_storage
 from routers import analyze, chat
-from routers import dashboard, profile, logs, health_api, notifications
+from routers import dashboard, profile, logs, health_api, notifications, food_search
 
 settings = get_settings()
 
@@ -34,6 +34,11 @@ async def lifespan(app: FastAPI):
     print(f"[OK] Knowledge base ready ({count} items)")
     print(f"[INFO] Initializing storage at: {settings.storage_db}")
     initialize_storage()
+    # seed global food catalog (idempotent)
+    from routers.food_search import seed_global_foods
+    seeded = seed_global_foods()
+    if seeded > 0:
+        print(f"[OK] Seeded {seeded} items into global food catalog")
     yield
     print("[STOP] NutriSmart Backend shutting down.")
 
@@ -69,6 +74,7 @@ app.include_router(profile.router)
 app.include_router(logs.router)
 app.include_router(health_api.router)
 app.include_router(notifications.router)
+app.include_router(food_search.router)
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

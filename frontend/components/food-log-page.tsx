@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Plus, Trash2, CalendarDays, Utensils, TrendingDown, TrendingUp, Sparkles, Loader2, History, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { useState, useMemo, useEffect, useRef, useCallback } from "react"
+import { Plus, Trash2, CalendarDays, Utensils, TrendingDown, TrendingUp, Sparkles, Loader2, History, AlertTriangle, CheckCircle2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,6 +27,16 @@ const QUICK_ADD = [
   { name: "ชาเขียวมัทฉะ ลาเต้", mealType: "snack", calories: 160, protein: 5, carbs: 25, fat: 4 },
 ]
 
+interface FoodSuggestion {
+  id: string
+  name: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  source: string
+}
+
 interface FoodLogPageProps {
   tdee?: number
 }
@@ -43,6 +53,87 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
   })
   const [estimating, setEstimating] = useState(false)
   const [estimateError, setEstimateError] = useState<string | null>(null)
+
+  // ── Autocomplete state ───────────────────────────────────────────────────
+  const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [highlightIndex, setHighlightIndex] = useState(-1)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Hide dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  // Debounced search
+  const searchFood = useCallback(async (query: string) => {
+    if (!query.trim() || query.trim().length < 1) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+    setSearchLoading(true)
+    try {
+      const res = await fetchWithAuth(
+        `${FINAL_BACKEND_URL}/api/food/search?query=${encodeURIComponent(query)}&limit=7`
+      )
+      if (res.ok) {
+        const data: FoodSuggestion[] = await res.json()
+        setSuggestions(data)
+        setShowSuggestions(data.length > 0)
+        setHighlightIndex(-1)
+      }
+    } catch {
+      setSuggestions([])
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [])
+
+  const handleNameChange = (value: string) => {
+    setForm((p) => ({ ...p, name: value }))
+    setEstimateError(null)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => searchFood(value), 300)
+  }
+
+  const handleSelectSuggestion = (item: FoodSuggestion) => {
+    setForm((p) => ({
+      ...p,
+      name: item.name,
+      calories: String(item.calories),
+      protein: String(item.protein),
+      carbs: String(item.carbs),
+      fat: String(item.fat),
+    }))
+    setSuggestions([])
+    setShowSuggestions(false)
+    setEstimateError(null)
+  }
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setHighlightIndex((i) => Math.min(i + 1, suggestions.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setHighlightIndex((i) => Math.max(i - 1, -1))
+    } else if (e.key === "Enter" && highlightIndex >= 0) {
+      e.preventDefault()
+      handleSelectSuggestion(suggestions[highlightIndex])
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false)
+    }
+  }
 
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }))
 
@@ -169,28 +260,77 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
                 <form onSubmit={handleAdd} className="space-y-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium text-muted-foreground">ชื่อรายการอาหาร</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="เช่น กะเพราไข่ดาว / โยเกิร์ต"
-                        value={form.name}
-                        onChange={(e) => { set("name", e.target.value); setEstimateError(null) }}
-                        className="h-11 flex-1"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={handleEstimate}
-                        disabled={estimating || !form.name.trim()}
-                        title="ให้ AI ประมาณค่าโภชนาการ"
-                        className="h-11 px-3 rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 hover:from-violet-600 hover:to-indigo-600 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-                      >
-                        {estimating ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-4 h-4" />
-                        )}
-                        <span className="hidden sm:inline">AI คำนวณ</span>
-                      </button>
+                    {/* ── Autocomplete wrapper ── */}
+                    <div ref={wrapperRef} className="relative">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                          {searchLoading && (
+                            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground animate-spin" />
+                          )}
+                          <Input
+                            placeholder="พิมพ์ค้นหา เช่น กะเพรา, ข้าวมัน..."
+                            value={form.name}
+                            onChange={(e) => handleNameChange(e.target.value)}
+                            onKeyDown={handleNameKeyDown}
+                            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                            className="h-11 pl-8 pr-8 flex-1"
+                            required
+                            autoComplete="off"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleEstimate}
+                          disabled={estimating || !form.name.trim()}
+                          title="ให้ AI ประมาณค่าโภชนาการ (ใช้เมื่อไม่พบในรายการ)"
+                          className="h-11 px-3 rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 hover:from-violet-600 hover:to-indigo-600 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                        >
+                          {estimating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-4 h-4" />
+                          )}
+                          <span className="hidden sm:inline">AI คำนวณ</span>
+                        </button>
+                      </div>
+
+                      {/* ── Suggestion Dropdown ── */}
+                      {showSuggestions && suggestions.length > 0 && (
+                        <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 bg-white rounded-xl border border-border shadow-lg overflow-hidden">
+                          <div className="px-3 py-1.5 bg-muted/50 border-b border-border">
+                            <p className="text-[10px] text-muted-foreground font-medium">
+                              🗂️ พบ {suggestions.length} รายการจากคลัง — คลิกเพื่อเลือกและกรอกค่าอัตโนมัติ
+                            </p>
+                          </div>
+                          <ul className="max-h-60 overflow-y-auto divide-y divide-border/40">
+                            {suggestions.map((item, idx) => (
+                              <li key={item.id}>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(item) }}
+                                  className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-2 transition-colors ${
+                                    idx === highlightIndex
+                                      ? "bg-primary/10 text-primary"
+                                      : "hover:bg-muted/60"
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-foreground truncate">{item.name}</p>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                                      P {item.protein}g · C {item.carbs}g · F {item.fat}g
+                                    </p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-sm font-bold text-primary">{item.calories}</span>
+                                    <span className="text-[10px] text-muted-foreground ml-0.5">kcal</span>
+                                  </div>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                     {estimateError && (
                       <p className="text-xs text-destructive flex items-center gap-1 mt-1">
