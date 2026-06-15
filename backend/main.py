@@ -5,6 +5,12 @@ NutriSmart AI Backend – FastAPI Entry Point
     uvicorn main:app --reload --port 8080
 """
 
+import os
+from dotenv import load_dotenv
+
+# โหลด Environment Variables ทันทีตั้งแต่เริ่มระบบ
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,6 +77,19 @@ app.include_router(notifications.router)
 async def health_check():
     return {"status": "ok", "service": "NutriSmart AI Backend"}
 
+
+@app.get("/api/test-ai")
+async def test_ai_keys():
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    
+    return {
+        "status": "ok",
+        "GEMINI_API_KEY_FOUND": bool(gemini_key),
+        "GEMINI_API_KEY_PREVIEW": f"{gemini_key[:4]}..." if gemini_key and len(gemini_key) > 4 else "Not Configured",
+        "OPENROUTER_API_KEY_FOUND": bool(openrouter_key),
+        "OPENROUTER_API_KEY_PREVIEW": f"{openrouter_key[:4]}..." if openrouter_key and len(openrouter_key) > 4 else "Not Configured"
+    }
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
