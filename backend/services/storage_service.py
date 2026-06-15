@@ -445,6 +445,43 @@ def insert_notification(
         return notif
 
 
+def check_and_log_api_usage(user_id: str, endpoint: str, max_limit: int = 10) -> bool:
+    """
+    ตรวจสอบว่าผู้ใช้ยิง Endpoint นี้เกินโควตาต่อวันหรือไม่
+    ถ้ายังไม่เกิน จะบันทึกประวัติการยิงและคืนค่า True
+    ถ้าเกินแล้ว จะคืนค่า False
+    """
+    if not user_id or user_id == DEFAULT_USER_ID:
+        return True
+        
+    now = datetime.utcnow().isoformat()
+    today = _today_str()
+    log_id = str(uuid.uuid4())
+    
+    with SessionLocal() as db:
+        count = db.query(models.ApiUsageLog).filter(
+            models.ApiUsageLog.user_id == user_id,
+            models.ApiUsageLog.endpoint == endpoint,
+            models.ApiUsageLog.date == today
+        ).count()
+        
+        if count >= max_limit:
+            return False
+            
+        new_log = models.ApiUsageLog(
+            id=log_id,
+            user_id=user_id,
+            endpoint=endpoint,
+            date=today,
+            created_at=now
+        )
+        db.add(new_log)
+        db.commit()
+        return True
+
+
+
+
 def _calc_tdee(profile: Dict[str, Any]) -> int:
     try:
         weight = float(profile.get("weight") or 0)

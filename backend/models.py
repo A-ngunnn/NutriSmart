@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, String, Float
+from sqlalchemy import Boolean, Column, String, Float, Integer
 from database import Base
 
 class Profile(Base):
@@ -65,3 +65,12 @@ class Notification(Base):
     is_dismissed = Column(Boolean, nullable=False, default=False)
     read_at = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
+
+class ApiUsageLog(Base):
+    __tablename__ = "api_usage_logs"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, index=True, nullable=False)
+    endpoint = Column(String, nullable=False)
+    date = Column(String, index=True, nullable=False)
+    created_at = Column(String, nullable=False)
+
