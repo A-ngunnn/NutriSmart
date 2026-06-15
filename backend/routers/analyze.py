@@ -9,7 +9,8 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from pydantic import BaseModel
 
 from services.ai_service import analyze_label_image, analyze_manual_input
-from services.storage_service import insert_scan_record, check_and_log_api_usage
+# เพิ่มการนำเข้า insert_meal_log เพื่อใช้บันทึกประวัติลงไดอารี่ทันที
+from services.storage_service import insert_scan_record, check_and_log_api_usage, insert_meal_log
 from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/analyze", tags=["Analyze"])
@@ -71,7 +72,7 @@ async def analyze_image(
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user),
 ):
-    """Analyze a nutrition label from an uploaded image."""
+    """Analyze a nutrition label from an uploaded image and auto-save to diary."""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="ไฟล์ที่อัปโหลดต้องเป็นรูปภาพ")
 
@@ -87,8 +88,11 @@ async def analyze_image(
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
     try:
+        # ส่งให้ AI วิเคราะห์
         result = await analyze_label_image(image_base64, mime_type=file.content_type)
         safe_result = _safe_analyze_response(result)
+        
+        # 1. บันทึกผลลงคลังสแกนส่วนตัว + อัปเดตคลังอาหารส่วนกลาง (Global Food Table)
         inserted = insert_scan_record(user_id, {
             "product_name": safe_result.productName,
             "calories": safe_result.calories,
@@ -100,6 +104,17 @@ async def analyze_image(
             "score": safe_result.score,
             "status": safe_result.status,
         })
+        
+        # 2. 🔥 One-Click Magic: บันทึกลงไดอารี่อาหารประจำวันของผู้ใช้ทันทีอัตโนมัติ
+        insert_meal_log(user_id, {
+            "food_name": safe_result.productName,
+            "calories": safe_result.calories,
+            "protein": safe_result.protein,
+            "carbs": safe_result.carbs,
+            "fat": safe_result.totalFat,
+            "meal_type": "Breakfast"  # ค่าเริ่มต้นสำหรับบันทึกด่วน ยูสเซอร์ไปปรับเปลี่ยนในไดอารี่ได้
+        })
+        
         return safe_result
     except HTTPException:
         raise
@@ -109,7 +124,7 @@ async def analyze_image(
 
 @router.post("/manual", response_model=AnalyzeResponse)
 async def analyze_manual(body: ManualAnalyzeRequest, user_id: str = Depends(get_current_user)):
-    """Analyze manually-entered nutrition data."""
+    """Analyze manually-entered nutrition data and auto-save to diary."""
     try:
         result = await analyze_manual_input(
             product_name=body.productName,
@@ -121,6 +136,8 @@ async def analyze_manual(body: ManualAnalyzeRequest, user_id: str = Depends(get_
             sodium=body.sodium,
         )
         safe_result = _safe_analyze_response(result)
+        
+        # 1. บันทึกผลลงคลังสแกนส่วนตัว
         insert_scan_record(user_id, {
             "product_name": safe_result.productName,
             "calories": safe_result.calories,
@@ -132,11 +149,23 @@ async def analyze_manual(body: ManualAnalyzeRequest, user_id: str = Depends(get_
             "score": safe_result.score,
             "status": safe_result.status,
         })
+        
+        # 2. 🔥 บันทึกลงไดอารี่อาหารประจำวันทันทีอัตโนมัติ
+        insert_meal_log(user_id, {
+            "food_name": safe_result.productName,
+            "calories": safe_result.calories,
+            "protein": safe_result.protein,
+            "carbs": safe_result.carbs,
+            "fat": safe_result.totalFat,
+            "meal_type": "Breakfast"
+        })
+        
         return safe_result
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
+
 
 class EstimateRequest(BaseModel):
     food_name: str
@@ -150,21 +179,40 @@ class EstimateResponse(BaseModel):
 
 @router.post("/estimate", response_model=EstimateResponse)
 async def estimate_food(body: EstimateRequest, user_id: str = Depends(get_current_user)):
-    """Estimate nutrition for a given food name."""
+    """Estimate nutrition for a given food name and auto-save to diary."""
     try:
         from services.ai_service import estimate_food_nutrition
         result = await estimate_food_nutrition(body.food_name)
+        
+        product_name = result.get("foodName") or body.food_name
+        calories = float(result.get("calories") or 0)
+        protein = float(result.get("protein") or 0)
+        carbs = float(result.get("carbs") or 0)
+        total_fat = float(result.get("fat") or 0)
+        
+        # 1. บันทึกผลลงคลังสแกนส่วนตัว
         insert_scan_record(user_id, {
-            "product_name": result.get("foodName") or body.food_name,
-            "calories": float(result.get("calories") or 0),
-            "protein": float(result.get("protein") or 0),
-            "carbs": float(result.get("carbs") or 0),
-            "total_fat": float(result.get("fat") or 0),
+            "product_name": product_name,
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "total_fat": total_fat,
             "sugar": 0.0,
             "sodium": 0.0,
             "score": 50.0,
             "status": "moderate",
         })
+        
+        # 2. 🔥 บันทึกลงไดอารี่อาหารประจำวันทันทีอัตโนมัติ
+        insert_meal_log(user_id, {
+            "food_name": product_name,
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "fat": total_fat,
+            "meal_type": "Breakfast"
+        })
+        
         return EstimateResponse(**result)
     except HTTPException:
         raise
