@@ -9,8 +9,8 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from pydantic import BaseModel
 
 from services.ai_service import analyze_label_image, analyze_manual_input
-# เพิ่มการนำเข้า insert_meal_log เพื่อใช้บันทึกประวัติลงไดอารี่ทันที
-from services.storage_service import insert_scan_record, check_and_log_api_usage, insert_meal_log
+# แก้ไขจาก insert_meal_log เป็น insert_food_entry ให้ตรงกับของจริงในระบบ
+from services.storage_service import insert_scan_record, check_and_log_api_usage, insert_food_entry
 from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/analyze", tags=["Analyze"])
@@ -105,14 +105,14 @@ async def analyze_image(
             "status": safe_result.status,
         })
         
-        # 2. 🔥 One-Click Magic: บันทึกลงไดอารี่อาหารประจำวันของผู้ใช้ทันทีอัตโนมัติ
-        insert_meal_log(user_id, {
-            "food_name": safe_result.productName,
+        # 2. 🔥 One-Click Magic: เปลี่ยนมาเรียกใช้ insert_food_entry และ Map ฟิลด์ตามโครงสร้างโครงงานจริง
+        insert_food_entry(user_id, {
+            "name": safe_result.productName,
+            "meal_type": "Breakfast",  # ค่าเริ่มต้น ยูสเซอร์ไปปรับเปลี่ยนทีหลังได้
             "calories": safe_result.calories,
             "protein": safe_result.protein,
             "carbs": safe_result.carbs,
-            "fat": safe_result.totalFat,
-            "meal_type": "Breakfast"  # ค่าเริ่มต้นสำหรับบันทึกด่วน ยูสเซอร์ไปปรับเปลี่ยนในไดอารี่ได้
+            "fat": safe_result.totalFat
         })
         
         return safe_result
@@ -150,14 +150,14 @@ async def analyze_manual(body: ManualAnalyzeRequest, user_id: str = Depends(get_
             "status": safe_result.status,
         })
         
-        # 2. 🔥 บันทึกลงไดอารี่อาหารประจำวันทันทีอัตโนมัติ
-        insert_meal_log(user_id, {
-            "food_name": safe_result.productName,
+        # 2. 🔥 เปลี่ยนมาเรียกใช้ insert_food_entry บันทึกลงไดอารี่อัตโนมัติ
+        insert_food_entry(user_id, {
+            "name": safe_result.productName,
+            "meal_type": "Breakfast",
             "calories": safe_result.calories,
             "protein": safe_result.protein,
             "carbs": safe_result.carbs,
-            "fat": safe_result.totalFat,
-            "meal_type": "Breakfast"
+            "fat": safe_result.totalFat
         })
         
         return safe_result
@@ -203,14 +203,14 @@ async def estimate_food(body: EstimateRequest, user_id: str = Depends(get_curren
             "status": "moderate",
         })
         
-        # 2. 🔥 บันทึกลงไดอารี่อาหารประจำวันทันทีอัตโนมัติ
-        insert_meal_log(user_id, {
-            "food_name": product_name,
+        # 2. 🔥 เปลี่ยนมาเรียกใช้ insert_food_entry บันทึกลงไดอารี่อัตโนมัติ
+        insert_food_entry(user_id, {
+            "name": product_name,
+            "meal_type": "Breakfast",
             "calories": calories,
             "protein": protein,
             "carbs": carbs,
-            "fat": total_fat,
-            "meal_type": "Breakfast"
+            "fat": total_fat
         })
         
         return EstimateResponse(**result)
