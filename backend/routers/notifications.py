@@ -91,6 +91,7 @@ def _row_to_response(row: models.Notification) -> NotificationResponse:
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[NotificationResponse])
+@router.get("/", response_model=List[NotificationResponse], include_in_schema=False)
 async def list_notifications(user_id: str = Depends(get_current_user)):
     """
     ดึงรายการแจ้งเตือนทั้งหมดของ user
