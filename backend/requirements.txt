@@ -7,3 +7,4 @@ python-dotenv
 pydantic-settings
 sqlalchemy
 psycopg2-binary
+supabase>=2.0.0
