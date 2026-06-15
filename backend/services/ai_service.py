@@ -41,10 +41,14 @@ MEDGEMMA_MODEL = "google/gemma-2-9b-it"
 
 def _get_headers(is_gemini: bool = False):
     if is_gemini:
+        if not settings.gemini_api_key or settings.gemini_api_key == "dummy":
+            raise HTTPException(status_code=503, detail="ขออภัยค่ะ ระบบ AI (Gemini) ยังไม่ได้ตั้งค่า API Key หรือขัดข้องชั่วคราว")
         return {
             "Authorization": f"Bearer {settings.gemini_api_key}",
             "Content-Type": "application/json",
         }
+    if not settings.openrouter_api_key or settings.openrouter_api_key == "dummy":
+        raise HTTPException(status_code=503, detail="ขออภัยค่ะ ระบบ AI (OpenRouter) ยังไม่ได้ตั้งค่า API Key หรือขัดข้องชั่วคราว")
     return {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
@@ -81,8 +85,8 @@ async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Op
                 error_detail = response.text[:500]
                 logger.error(f"AI API error {response.status_code}: {error_detail}")
                 raise HTTPException(
-                    status_code=502, 
-                    detail=f"AI API Error: ได้รับ Status Code {response.status_code} จากระบบ AI"
+                    status_code=503, 
+                    detail="ขออภัยค่ะ การเชื่อมต่อกับระบบ AI ล้มเหลวชั่วคราว กรุณาลองใหม่อีกครั้ง"
                 )
                 
             data = response.json()
@@ -91,11 +95,11 @@ async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Op
                 return data["choices"][0]["message"]["content"]
             except (KeyError, IndexError) as e:
                 logger.error(f"Unexpected AI response structure: {data}")
-                raise HTTPException(status_code=502, detail="AI API Error: โครงสร้างข้อมูลที่ตอบกลับมาไม่ถูกต้อง")
+                raise HTTPException(status_code=503, detail="ขออภัยค่ะ ข้อมูลที่ตอบกลับมาจาก AI ไม่ถูกต้องชั่วคราว")
                 
     except httpx.RequestError as exc:
         logger.error(f"HTTP Request failed when calling AI API: {exc}")
-        raise HTTPException(status_code=502, detail="AI API Error: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้")
+        raise HTTPException(status_code=503, detail="ขออภัยค่ะ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้ในขณะนี้")
 
 
 def _parse_json_response(text: str) -> dict:

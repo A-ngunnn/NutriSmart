@@ -97,6 +97,8 @@ async def analyze_image(
             "status": safe_result.status,
         })
         return safe_result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
 
@@ -127,6 +129,8 @@ async def analyze_manual(body: ManualAnalyzeRequest, user_id: str = Depends(get_
             "status": safe_result.status,
         })
         return safe_result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
 
@@ -158,5 +162,7 @@ async def estimate_food(body: EstimateRequest, user_id: str = Depends(get_curren
             "status": "moderate",
         })
         return EstimateResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการประมาณค่า: {str(e)}")
