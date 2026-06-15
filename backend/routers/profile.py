@@ -1,9 +1,10 @@
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from services.storage_service import get_profile, upsert_profile
+from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/profile", tags=["Profile"])
 
@@ -47,12 +48,12 @@ def _client_profile(raw: dict) -> ProfileResponse:
 
 
 @router.get("", response_model=ProfileResponse)
-async def fetch_profile(user_id: Optional[str] = Query(None, alias="user_id")):
+async def fetch_profile(user_id: str = Depends(get_current_user)):
     profile = get_profile(user_id)
     return _client_profile(profile)
 
 
 @router.put("", response_model=ProfileResponse)
-async def save_profile(body: ProfileRequest, user_id: Optional[str] = Query(None, alias="user_id")):
+async def save_profile(body: ProfileRequest, user_id: str = Depends(get_current_user)):
     result = upsert_profile(user_id, _storage_profile(body))
     return _client_profile(result)

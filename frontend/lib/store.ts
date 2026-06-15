@@ -13,6 +13,10 @@ import {
   createWaterLog,
   deleteWaterLog,
 } from "@/lib/backend-api";
+
+// ── Supabase Singleton ─────────────────────────────────────────────────────────────────────────
+const supabaseClient = createClient();
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ProfileData {
@@ -148,8 +152,7 @@ export const useAppStore = create<AppState>()(
           userName: name,
           profile: { ...state.profile, name }
         }))
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (session) {
           const saved = await saveUserProfile({ ...get().profile, name }, session.user.id)
           set({ profile: saved, userName: saved.name || name })
@@ -161,8 +164,7 @@ export const useAppStore = create<AppState>()(
           profile,
           userName: profile.name || state.userName,
         }))
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (session) {
           const saved = await saveUserProfile(profile, session.user.id)
           set({ profile: saved, userName: saved.name || profile.name || get().userName })
@@ -170,8 +172,7 @@ export const useAppStore = create<AppState>()(
       },
 
       addFoodEntry: async (entry) => {
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (!session) return
 
         // 🚀 Optimistic Update: โชว์ข้อมูลบนหน้าจอทันที
@@ -197,8 +198,7 @@ export const useAppStore = create<AppState>()(
       removeFoodEntry: async (id) => {
         set((state) => ({ foodEntries: state.foodEntries.filter((e) => e.id !== id) }))
 
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (session) {
           await deleteFoodLog(id, session.user.id)
         }
@@ -217,8 +217,7 @@ export const useAppStore = create<AppState>()(
       },
 
       addScan: async (scan) => {
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (!session) return
 
         // 🚀 Optimistic Update
@@ -240,8 +239,7 @@ export const useAppStore = create<AppState>()(
       },
 
       addWaterEntry: async (amount) => {
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (!session) return
 
         // 🚀 Optimistic Update
@@ -265,8 +263,7 @@ export const useAppStore = create<AppState>()(
       removeWaterEntry: async (id) => {
         set((state) => ({ waterEntries: state.waterEntries.filter((e) => e.id !== id) }))
 
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabaseClient.auth.getSession()
         if (session) {
           await deleteWaterLog(id, session.user.id)
         }

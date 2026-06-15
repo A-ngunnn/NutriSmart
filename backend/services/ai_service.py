@@ -37,6 +37,7 @@ GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/c
 
 DEFAULT_VISION_MODEL = "gemini-2.5-flash"  # Route to Google direct
 DEFAULT_CHAT_MODEL = "gemini-2.5-flash" # Route to Google direct (bypass OpenRouter)
+MEDGEMMA_MODEL = "google/gemma-2-9b-it"
 
 def _get_headers(is_gemini: bool = False):
     if is_gemini:
@@ -288,7 +289,12 @@ async def analyze_manual_input(
 async def chat(user_message: str, chat_history: Optional[list[dict]] = None) -> str:
     try:
         rag_context = get_relevant_context(user_message, max_items=3)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "RAG context retrieval failed (non-fatal) — falling back to empty context. Error: %s",
+            exc,
+            exc_info=True,
+        )
         rag_context = "ไม่มีข้อมูลอ้างอิง"
 
     system_prompt = CHAT_SYSTEM_PROMPT.replace("{rag_context}", rag_context)
@@ -362,3 +368,9 @@ async def estimate_food_nutrition(food_name: str) -> dict:
 
     text = await _call_ai_api(messages, temperature=0.3)
     return _parse_json_response(text)
+
+
+async def call_medgemma(prompt: str) -> str:
+    """เรียก MedGemma ผ่าน OpenRouter แล้วคืนข้อความตอบกลับ"""
+    messages = [{"role": "user", "content": prompt}]
+    return await _call_ai_api(messages, temperature=0.5, model=MEDGEMMA_MODEL)

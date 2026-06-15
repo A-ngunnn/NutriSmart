@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     medgemma_model: str = "google/gemma-2-9b-it"
     medgemma_fallback_model: str = "gpt-4o-mini"
     storage_db: str = str(Path(__file__).resolve().parents[1] / "backend_data" / "nutrismart.db")
-    database_url: str = "postgresql://user:password@localhost:5432/nutrismart"
+    database_url: str | None = None
     line_channel_access_token: str = ""  # LINE Messaging API — set LINE_CHANNEL_ACCESS_TOKEN in .env
 
     class Config:
@@ -24,4 +24,7 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if not settings.database_url:
+        raise ValueError("CRITICAL ERROR: DATABASE_URL environment variable is not set. Please set it in .env file or environment variables.")
+    return settings

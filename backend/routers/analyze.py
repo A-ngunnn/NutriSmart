@@ -5,11 +5,12 @@ Router: /api/analyze – Nutrition label analysis endpoints.
 import base64
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from pydantic import BaseModel
 
 from services.ai_service import analyze_label_image, analyze_manual_input
 from services.storage_service import insert_scan_record
+from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/analyze", tags=["Analyze"])
 
@@ -68,7 +69,7 @@ def _safe_analyze_response(raw: dict) -> AnalyzeResponse:
 @router.post("/image", response_model=AnalyzeResponse)
 async def analyze_image(
     file: UploadFile = File(...),
-    user_id: Optional[str] = Form(None),
+    user_id: str = Depends(get_current_user),
 ):
     """Analyze a nutrition label from an uploaded image."""
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -101,7 +102,7 @@ async def analyze_image(
 
 
 @router.post("/manual", response_model=AnalyzeResponse)
-async def analyze_manual(body: ManualAnalyzeRequest):
+async def analyze_manual(body: ManualAnalyzeRequest, user_id: str = Depends(get_current_user)):
     """Analyze manually-entered nutrition data."""
     try:
         result = await analyze_manual_input(
@@ -113,7 +114,19 @@ async def analyze_manual(body: ManualAnalyzeRequest):
             sugar=body.sugar,
             sodium=body.sodium,
         )
-        return _safe_analyze_response(result)
+        safe_result = _safe_analyze_response(result)
+        insert_scan_record(user_id, {
+            "product_name": safe_result.productName,
+            "calories": safe_result.calories,
+            "protein": safe_result.protein,
+            "carbs": safe_result.carbs,
+            "total_fat": safe_result.totalFat,
+            "sugar": safe_result.sugar,
+            "sodium": safe_result.sodium,
+            "score": safe_result.score,
+            "status": safe_result.status,
+        })
+        return safe_result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการวิเคราะห์: {str(e)}")
 
@@ -128,11 +141,22 @@ class EstimateResponse(BaseModel):
     fat: float
 
 @router.post("/estimate", response_model=EstimateResponse)
-async def estimate_food(body: EstimateRequest):
+async def estimate_food(body: EstimateRequest, user_id: str = Depends(get_current_user)):
     """Estimate nutrition for a given food name."""
     try:
         from services.ai_service import estimate_food_nutrition
         result = await estimate_food_nutrition(body.food_name)
+        insert_scan_record(user_id, {
+            "product_name": result.get("foodName") or body.food_name,
+            "calories": float(result.get("calories") or 0),
+            "protein": float(result.get("protein") or 0),
+            "carbs": float(result.get("carbs") or 0),
+            "total_fat": float(result.get("fat") or 0),
+            "sugar": 0.0,
+            "sodium": 0.0,
+            "score": 50.0,
+            "status": "moderate",
+        })
         return EstimateResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการประมาณค่า: {str(e)}")

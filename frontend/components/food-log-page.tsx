@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAppStore } from "@/lib/store"
 import { Badge } from "@/components/ui/badge"
-import { FINAL_BACKEND_URL } from "@/lib/backend-api"
+import { FINAL_BACKEND_URL, fetchWithAuth } from "@/lib/backend-api"
 
 const MEAL_TYPES = [
   { value: "breakfast", label: "มื้อเช้า (Breakfast)", emoji: "🌅" },
@@ -54,7 +54,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
     setEstimateError(null);
 
     try {
-      const res = await fetch(
+      const res = await fetchWithAuth(
         `${FINAL_BACKEND_URL}/api/analyze/estimate`,
         {
           method: "POST",

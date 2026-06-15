@@ -1,9 +1,10 @@
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
 from services.storage_service import get_health_summary, get_service_status
+from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/health", tags=["Health"])
 
@@ -35,5 +36,5 @@ async def health_status():
 
 
 @router.get("/summary", response_model=HealthSummaryResponse)
-async def health_summary(user_id: Optional[str] = Query(None, alias="user_id")):
+async def health_summary(user_id: str = Depends(get_current_user)):
     return get_health_summary(user_id)

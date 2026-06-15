@@ -34,6 +34,42 @@ export function getBackendUrl(): string {
 // ตัวแปรแกนหลักตัวเดียวที่จะใช้คุยกับ API ทุกฟังก์ชันต่อจากนี้
 export const FINAL_BACKEND_URL = getBackendUrl();
 
+import { createClient } from "@/lib/supabase/client";
+
+export async function getAuthHeaders(): Promise<HeadersInit> {
+  const headers: Record<string, string> = {};
+  if (typeof window !== "undefined") {
+    try {
+      const supabase = createClient();
+      // getUser() triggers auto-refresh ถ้า Token หมดอายุ ก่อนดึง Session
+      const { error: userError } = await supabase.auth.getUser();
+      if (!userError) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          headers["Authorization"] = `Bearer ${session.access_token}`;
+        }
+      }
+    } catch (e) {
+      console.warn("[backend-api] Failed to get supabase session", e);
+    }
+  }
+  return headers;
+}
+
+export async function fetchWithAuth(url: RequestInfo | URL, options: RequestInit = {}): Promise<Response> {
+  const authHeaders = await getAuthHeaders();
+  
+  const finalOptions: RequestInit = {
+    ...options,
+    headers: {
+      ...authHeaders,
+      ...(options.headers || {})
+    }
+  };
+  
+  return fetch(url, finalOptions);
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface AnalyzeResult {
@@ -200,7 +236,7 @@ export async function analyzeImageWithBackend(
     formData.append("user_id", userId);
   }
 
-  const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/image`, {
+  const response = await fetchWithAuth(`${FINAL_BACKEND_URL}/api/analyze/image`, {
     method: "POST",
     body: formData,
   });
@@ -219,7 +255,7 @@ export async function analyzeManualWithBackend(data: {
   sugar: number;
   sodium: number;
 }): Promise<AnalyzeResult> {
-  const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/manual`, {
+  const response = await fetchWithAuth(`${FINAL_BACKEND_URL}/api/analyze/manual`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -231,7 +267,7 @@ export async function analyzeManualWithBackend(data: {
 // ── Analyze: estimate (by name) ─────────────────────────────────────────────
 
 export async function estimateFoodWithBackend(foodName: string): Promise<Partial<AnalyzeResult>> {
-  const response = await fetch(`${FINAL_BACKEND_URL}/api/analyze/estimate`, {
+  const response = await fetchWithAuth(`${FINAL_BACKEND_URL}/api/analyze/estimate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ food_name: foodName }),
@@ -245,7 +281,7 @@ export async function chatWithBackend(
   message: string,
   history: ChatMessage[] = []
 ): Promise<string> {
-  const response = await fetch(`${FINAL_BACKEND_URL}/api/chat`, {
+  const response = await fetchWithAuth(`${FINAL_BACKEND_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, history }),
@@ -258,19 +294,19 @@ export async function chatWithBackend(
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export async function fetchDashboardSummary(userId?: string): Promise<DashboardSummary> {
-  const response = await fetch(buildUrl("/api/dashboard/summary", userId));
+  const response = await fetchWithAuth(buildUrl("/api/dashboard/summary", userId));
   return parseJson<DashboardSummary>(response);
 }
 
 // ── Profile ─────────────────────────────────────────────────────────────────--
 
 export async function fetchUserProfile(userId?: string): Promise<ProfileData> {
-  const response = await fetch(buildUrl("/api/profile", userId));
+  const response = await fetchWithAuth(buildUrl("/api/profile", userId));
   return parseJson<ProfileData>(response);
 }
 
 export async function saveUserProfile(profile: ProfileData, userId?: string): Promise<ProfileData> {
-  const response = await fetch(buildUrl("/api/profile", userId), {
+  const response = await fetchWithAuth(buildUrl("/api/profile", userId), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(profile),
@@ -281,7 +317,7 @@ export async function saveUserProfile(profile: ProfileData, userId?: string): Pr
 // ── Food logs ────────────────────────────────────────────────────────────────
 
 export async function fetchFoodLogs(userId?: string): Promise<FoodLogEntry[]> {
-  const response = await fetch(buildUrl("/api/logs/food", userId));
+  const response = await fetchWithAuth(buildUrl("/api/logs/food", userId));
   return parseJson<FoodLogEntry[]>(response);
 }
 
@@ -289,7 +325,7 @@ export async function createFoodLog(
   entry: Omit<FoodLogEntry, "id" | "user_id" | "created_at">,
   userId?: string
 ): Promise<FoodLogEntry> {
-  const response = await fetch(buildUrl("/api/logs/food", userId), {
+  const response = await fetchWithAuth(buildUrl("/api/logs/food", userId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(entry),
@@ -298,7 +334,7 @@ export async function createFoodLog(
 }
 
 export async function deleteFoodLog(entryId: string, userId?: string): Promise<void> {
-  const response = await fetch(buildUrl(`/api/logs/food/${entryId}`, userId), {
+  const response = await fetchWithAuth(buildUrl(`/api/logs/food/${entryId}`, userId), {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -310,7 +346,7 @@ export async function deleteFoodLog(entryId: string, userId?: string): Promise<v
 // ── Scan logs ───────────────────────────────────────────────────────────────
 
 export async function fetchScanLogs(userId?: string): Promise<ScanLogEntry[]> {
-  const response = await fetch(buildUrl("/api/logs/scan", userId));
+  const response = await fetchWithAuth(buildUrl("/api/logs/scan", userId));
   return parseJson<ScanLogEntry[]>(response);
 }
 
@@ -318,7 +354,7 @@ export async function createScanLog(
   scan: Omit<ScanLogEntry, "id" | "user_id" | "created_at">,
   userId?: string
 ): Promise<ScanLogEntry> {
-  const response = await fetch(buildUrl("/api/logs/scan", userId), {
+  const response = await fetchWithAuth(buildUrl("/api/logs/scan", userId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(scan),
@@ -329,7 +365,7 @@ export async function createScanLog(
 // ── Water logs ───────────────────────────────────────────────────────────────
 
 export async function fetchWaterLogs(userId?: string): Promise<WaterLogEntry[]> {
-  const response = await fetch(buildUrl("/api/logs/water", userId));
+  const response = await fetchWithAuth(buildUrl("/api/logs/water", userId));
   return parseJson<WaterLogEntry[]>(response);
 }
 
@@ -338,7 +374,7 @@ export async function createWaterLog(
   date?: string,
   userId?: string
 ): Promise<WaterLogEntry> {
-  const response = await fetch(buildUrl("/api/logs/water", userId), {
+  const response = await fetchWithAuth(buildUrl("/api/logs/water", userId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ amount, date }),
@@ -347,7 +383,7 @@ export async function createWaterLog(
 }
 
 export async function deleteWaterLog(entryId: string, userId?: string): Promise<void> {
-  const response = await fetch(buildUrl(`/api/logs/water/${entryId}`, userId), {
+  const response = await fetchWithAuth(buildUrl(`/api/logs/water/${entryId}`, userId), {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -359,12 +395,12 @@ export async function deleteWaterLog(entryId: string, userId?: string): Promise<
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function fetchHealthStatus(userId?: string): Promise<HealthStatus> {
-  const response = await fetch(buildUrl("/api/health/status", userId));
+  const response = await fetchWithAuth(buildUrl("/api/health/status", userId));
   return parseJson<HealthStatus>(response);
 }
 
 export async function fetchHealthSummary(userId?: string): Promise<HealthSummary> {
-  const response = await fetch(buildUrl("/api/health/summary", userId));
+  const response = await fetchWithAuth(buildUrl("/api/health/summary", userId));
   return parseJson<HealthSummary>(response);
 }
 

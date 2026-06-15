@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from config import get_settings
 from database import SessionLocal, engine, Base
 import models
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 settings = get_settings()
 
@@ -126,16 +126,12 @@ def _check_sodium_and_notify(user_id: str, check_date: str, bg_tasks=None) -> No
     """
     try:
         with SessionLocal() as db:
-            # คำนวณโซเดียมรวมจาก scan_history วันนี้
-            scans = (
-                db.query(models.ScanHistory)
-                .filter(
-                    models.ScanHistory.user_id == user_id,
-                    models.ScanHistory.date == check_date,
-                )
-                .all()
-            )
-            total_sodium = sum(float(s.sodium or 0) for s in scans)
+            # คำนวณโซเดียมรวมจาก scan_history วันนี้โดยใช้ Database Aggregation
+            total_sodium_scalar = db.query(func.sum(models.ScanHistory.sodium)).filter(
+                models.ScanHistory.user_id == user_id,
+                models.ScanHistory.date == check_date,
+            ).scalar()
+            total_sodium = float(total_sodium_scalar or 0)
 
             if total_sodium < SODIUM_DAILY_LIMIT_MG:
                 return  # ยังไม่เกินเกณฑ์ ไม่ต้องแจ้งเตือน
@@ -212,15 +208,12 @@ def _check_calories_and_notify(user_id: str, check_date: str, bg_tasks=None) -> 
     """
     try:
         with SessionLocal() as db:
-            foods = (
-                db.query(models.FoodLog)
-                .filter(
-                    models.FoodLog.user_id == user_id,
-                    models.FoodLog.date == check_date,
-                )
-                .all()
-            )
-            total_calories = sum(float(f.calories or 0) for f in foods)
+            # คำนวณแคลอรีรวมจาก FoodLog ของวันนี้โดยใช้ Database Aggregation
+            total_calories_scalar = db.query(func.sum(models.FoodLog.calories)).filter(
+                models.FoodLog.user_id == user_id,
+                models.FoodLog.date == check_date,
+            ).scalar()
+            total_calories = float(total_calories_scalar or 0)
 
             profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
             limit = profile.tdee if (profile and profile.tdee) else 2000.0
@@ -420,6 +413,36 @@ def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any], bg_tas
         
     _check_sodium_and_notify(user_id, entry_date, bg_tasks)
     return _model_to_dict(new_record)
+
+
+def insert_notification(
+    user_id: str,
+    category: str,
+    priority: str,
+    title: str,
+    body: str,
+    emoji: str,
+) -> models.Notification:
+    """INSERT notification เข้า DB แล้วคืน ORM object"""
+    now = datetime.utcnow().isoformat()
+    nid = str(uuid.uuid4())
+    with SessionLocal() as db:
+        notif = models.Notification(
+            id=nid,
+            user_id=user_id,
+            category=category,
+            priority=priority,
+            title=title,
+            body=body,
+            emoji=emoji,
+            is_read=False,
+            is_dismissed=False,
+            created_at=now,
+        )
+        db.add(notif)
+        db.commit()
+        db.refresh(notif)
+        return notif
 
 
 def _calc_tdee(profile: Dict[str, Any]) -> int:

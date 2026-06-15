@@ -15,13 +15,16 @@ from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from pydantic import BaseModel
 
 from config import get_settings
 from database import SessionLocal
 import models
 from services.line_service import send_line_if_available
+from services.storage_service import insert_notification
+from services.ai_service import call_medgemma
+from middleware.auth import get_current_user
 
 settings = get_settings()
 logger = logging.getLogger("nutrismart.notifications")
@@ -29,8 +32,6 @@ logger = logging.getLogger("nutrismart.notifications")
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 # ── Constants ────────────────────────────────────────────────────────────────
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MEDGEMMA_MODEL = "google/gemma-2-9b-it"
 SODIUM_DAILY_LIMIT_MG = 2_000.0
 
 DEFAULT_USER_ID = "default"
@@ -84,78 +85,22 @@ def _row_to_response(row: models.Notification) -> NotificationResponse:
     )
 
 
-def _openrouter_headers() -> dict:
-    return {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://nutrismart.app",
-        "X-Title": "NutriSmart AI",
-    }
 
-
-async def _call_medgemma(prompt: str) -> str:
-    """เรียก MedGemma ผ่าน OpenRouter แล้วคืนข้อความตอบกลับ"""
-    payload = {
-        "model": MEDGEMMA_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.5,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(OPENROUTER_URL, headers=_openrouter_headers(), json=payload)
-            if resp.status_code != 200:
-                logger.error("MedGemma API error %s: %s", resp.status_code, resp.text[:300])
-                raise HTTPException(status_code=502, detail="MedGemma API error")
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-    except httpx.RequestError as exc:
-        logger.error("MedGemma connection error: %s", exc)
-        raise HTTPException(status_code=502, detail="ไม่สามารถเชื่อมต่อกับ MedGemma ได้")
-
-
-def _insert_notification(
-    user_id: str,
-    category: str,
-    priority: str,
-    title: str,
-    body: str,
-    emoji: str,
-) -> models.Notification:
-    """INSERT notification เข้า DB แล้วคืน ORM object"""
-    now = datetime.utcnow().isoformat()
-    nid = str(uuid.uuid4())
-    with SessionLocal() as db:
-        notif = models.Notification(
-            id=nid,
-            user_id=user_id,
-            category=category,
-            priority=priority,
-            title=title,
-            body=body,
-            emoji=emoji,
-            is_read=False,
-            created_at=now,
-        )
-        db.add(notif)
-        db.commit()
-        db.refresh(notif)
-        return notif
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[NotificationResponse])
-async def list_notifications(user_id: Optional[str] = Query(None)):
+async def list_notifications(user_id: str = Depends(get_current_user)):
     """
     ดึงรายการแจ้งเตือนทั้งหมดของ user
     เรียงลำดับ: ยังไม่อ่านขึ้นก่อน → ล่าสุดก่อน
     """
-    uid = user_id or DEFAULT_USER_ID
     with SessionLocal() as db:
         rows = (
             db.query(models.Notification)
             .filter(
-                models.Notification.user_id == uid,
+                models.Notification.user_id == user_id,
                 models.Notification.is_dismissed == False,  # noqa: E712
             )
             .order_by(
@@ -170,16 +115,15 @@ async def list_notifications(user_id: Optional[str] = Query(None)):
 @router.put("/{notification_id}/read", response_model=NotificationResponse)
 async def mark_as_read(
     notification_id: str,
-    user_id: Optional[str] = Query(None),
+    user_id: str = Depends(get_current_user),
 ):
     """อัปเดต is_read = true"""
-    uid = user_id or DEFAULT_USER_ID
     with SessionLocal() as db:
         notif = (
             db.query(models.Notification)
             .filter(
                 models.Notification.id == notification_id,
-                models.Notification.user_id == uid,
+                models.Notification.user_id == user_id,
             )
             .first()
         )
@@ -195,16 +139,15 @@ async def mark_as_read(
 @router.delete("/{notification_id}")
 async def dismiss_notification(
     notification_id: str,
-    user_id: Optional[str] = Query(None),
+    user_id: str = Depends(get_current_user),
 ):
     """Soft-delete: ตั้ง is_dismissed = true (ไม่ลบจริง)"""
-    uid = user_id or DEFAULT_USER_ID
     with SessionLocal() as db:
         notif = (
             db.query(models.Notification)
             .filter(
                 models.Notification.id == notification_id,
-                models.Notification.user_id == uid,
+                models.Notification.user_id == user_id,
             )
             .first()
         )
@@ -219,6 +162,7 @@ async def dismiss_notification(
 async def trigger_weekly_summary(
     body: TriggerSummaryRequest,
     background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user),
 ):
     """
     เดโมสำหรับการนำเสนอ:
@@ -226,7 +170,6 @@ async def trigger_weekly_summary(
     - ส่งให้ MedGemma สรุปสุขภาพเป็นข้อความสวยงาม
     - INSERT ลงตาราง notifications จริง
     """
-    uid = body.user_id or DEFAULT_USER_ID
     today = date.today()
     start_date = (today - timedelta(days=6)).isoformat()
     end_date = today.isoformat()
@@ -236,7 +179,7 @@ async def trigger_weekly_summary(
         food_rows = (
             db.query(models.FoodLog)
             .filter(
-                models.FoodLog.user_id == uid,
+                models.FoodLog.user_id == user_id,
                 models.FoodLog.date >= start_date,
                 models.FoodLog.date <= end_date,
             )
@@ -246,8 +189,8 @@ async def trigger_weekly_summary(
 
     if not food_rows:
         # ยังไม่มีข้อมูล → INSERT แจ้งเตือนแนะนำให้บันทึกอาหาร
-        notif = _insert_notification(
-            user_id=uid,
+        notif = insert_notification(
+            user_id=user_id,
             category="ai",
             priority="medium",
             title="ยังไม่มีข้อมูลอาหาร 7 วันที่ผ่านมา",
@@ -257,7 +200,7 @@ async def trigger_weekly_summary(
         # ── ส่ง LINE Push ด้วย (Background) ──────────────────────────────────
         background_tasks.add_task(
             send_line_if_available,
-            user_id=uid,
+            user_id=user_id,
             title="ยังไม่มีข้อมูลอาหาร 7 วันที่ผ่านมา",
             body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
             emoji="📊",
@@ -309,7 +252,7 @@ async def trigger_weekly_summary(
 
     # ── เรียก MedGemma ────────────────────────────────────────────────────
     try:
-        ai_summary = await _call_medgemma(prompt)
+        ai_summary = await call_medgemma(prompt)
         # ตัดให้ไม่ยาวเกินไป
         ai_summary = ai_summary.strip().replace("**", "").replace("##", "").strip()
         if len(ai_summary) > 300:
@@ -321,8 +264,8 @@ async def trigger_weekly_summary(
             "ยังคงรักษาพฤติกรรมการกินที่ดีต่อไปนะคะ 💪"
         )
 
-    notif = _insert_notification(
-        user_id=uid,
+    notif = insert_notification(
+        user_id=user_id,
         category="ai",
         priority="medium",
         title="รายงานสุขภาพประจำสัปดาห์ 📊",
@@ -333,8 +276,8 @@ async def trigger_weekly_summary(
     # ── ส่ง LINE Push ควบคู่กับการบันทึกในเว็บ (Background) ────────────────
     background_tasks.add_task(
         send_line_if_available,
-        user_id=uid,
-        title="รายงานสุขภาพประจำสัปดาห์ 📊",
+        user_id=user_id,
+        title="สรุปสุขภาพประจำสัปดาห์จาก AI ✨",
         body=ai_summary,
         emoji="📊",
         category="ai",
