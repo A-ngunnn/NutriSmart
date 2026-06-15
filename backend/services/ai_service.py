@@ -35,8 +35,8 @@ from fastapi import HTTPException
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
-DEFAULT_VISION_MODEL = "gemini-2.5-flash"  # Route to Google direct
-DEFAULT_CHAT_MODEL = "gemini-2.5-flash" # Route to Google direct (bypass OpenRouter)
+DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Route to OpenRouter
+DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash" # Route to OpenRouter
 MEDGEMMA_MODEL = "google/gemma-2-9b-it"
 
 def _get_headers(is_gemini: bool = False):
@@ -71,6 +71,7 @@ async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Op
         "model": target_model,
         "messages": messages,
         "temperature": temperature,
+        "max_tokens": 2048,
     }
 
     try:
@@ -86,7 +87,7 @@ async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Op
                 logger.error(f"AI API error {response.status_code}: {error_detail}")
                 raise HTTPException(
                     status_code=503, 
-                    detail="ขออภัยค่ะ การเชื่อมต่อกับระบบ AI ล้มเหลวชั่วคราว กรุณาลองใหม่อีกครั้ง"
+                    detail=f"การเชื่อมต่อ AI ล้มเหลว (Status: {response.status_code}): {error_detail[:100]}..."
                 )
                 
             data = response.json()
