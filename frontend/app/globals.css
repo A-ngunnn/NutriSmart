@@ -3,6 +3,125 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@keyframes bounce-cute {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-14px) rotate(10deg); }
+}
+.animate-bounce-cute {
+  animation: bounce-cute 0.9s ease-in-out infinite;
+}
+
+@keyframes bounce-cute-sm {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-7px) rotate(8deg); }
+}
+.animate-bounce-cute-sm {
+  animation: bounce-cute-sm 0.9s ease-in-out infinite;
+}
+
+/* ── Full-screen branded loading splash (LoadingScreen) ── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+@keyframes float-veg {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+.animate-float-veg {
+  animation: float-veg 2s ease-in-out infinite;
+}
+
+@keyframes spin-duo {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-duo {
+  animation: spin-duo 0.9s cubic-bezier(0.6, 0.1, 0.4, 0.9) infinite;
+}
+
+/* ── Food Analyzer Spinner (AnalyzingSpinner) ── */
+@keyframes spin-cw {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-cw {
+  animation: spin-cw 8s linear infinite;
+}
+
+@keyframes spin-ccw {
+  to { transform: rotate(-360deg); }
+}
+.animate-spin-ccw {
+  animation: spin-ccw 6s linear infinite;
+}
+
+@keyframes float-center {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+.animate-float-center {
+  animation: float-center 3s ease-in-out infinite;
+}
+
+@keyframes pulse-chip {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+.animate-pulse-chip {
+  animation: pulse-chip 2.5s ease-in-out infinite;
+}
+
+@keyframes jelly-bounce {
+  0%, 100% { transform: scale(1, 1) translateY(0); }
+  30%      { transform: scale(1.15, 0.85) translateY(4px); }
+  50%      { transform: scale(0.9, 1.1) translateY(-10px); }
+  70%      { transform: scale(1.05, 0.95) translateY(2px); }
+}
+.animate-jelly {
+  transform-origin: center bottom;
+  animation: jelly-bounce 1.4s ease-in-out infinite;
+}
+
+@keyframes orbit-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.animate-orbit-rotate {
+  animation: orbit-rotate 12s linear infinite;
+}
+
+@keyframes shimmer-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(220%); }
+}
+.animate-shimmer-bar {
+  animation: shimmer-bar 1.6s ease-in-out infinite;
+}
+
+/* ── Error/empty state mascots (404/500/503/offline/slow/empty) ── */
+@keyframes err-float    { 0%,100% { transform: translateY(0); }   50% { transform: translateY(-9px); } }
+@keyframes err-wiggle   { 0%,100% { transform: rotate(-3deg); }   50% { transform: rotate(3deg); } }
+@keyframes err-shake    { 0%,100% { transform: rotate(0); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(7deg); } 60% { transform: rotate(-5deg); } 80% { transform: rotate(4deg); } }
+@keyframes err-bounce   { 0%,100% { transform: translateY(0); }   45% { transform: translateY(-13px); } 70% { transform: translateY(-4px); } }
+@keyframes err-drop     { 0%,60% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(14px); opacity: 0; } }
+@keyframes err-zzz      { 0% { opacity: 0; transform: translate(0,0) scale(.6); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(6px,-22px) scale(1.1); } }
+@keyframes err-pop      { 0%,100% { transform: scale(1); }        50% { transform: scale(1.3); } }
+@keyframes err-blink    { 0%,90%,100% { transform: scaleY(1); }   93%,97% { transform: scaleY(.05); } }
+@keyframes err-spin-swirl { to { transform: rotate(360deg); } }
+
+.animate-err-float      { animation: err-float 2.8s ease-in-out infinite; }
+.animate-err-wiggle     { animation: err-wiggle 2s ease-in-out infinite; }
+.animate-err-shake      { animation: err-shake 2s ease-in-out infinite; }
+.animate-err-bounce     { animation: err-bounce 2.5s ease-in-out infinite; }
+.animate-err-drop       { animation: err-drop 1.6s ease-in-out infinite; }
+.animate-err-zzz        { animation: err-zzz 2.4s ease-in-out infinite; }
+.animate-err-pop        { animation: err-pop 2s ease-in-out infinite; }
+.animate-err-blink      { animation: err-blink 4s ease-in-out infinite; transform-origin: center; }
+.animate-err-spin-swirl { animation: err-spin-swirl 1.5s linear infinite; }
+
 :root {
   /* NutriSmart – light mode */
   --background: oklch(0.974 0.004 106.4);       /* #F8F9FA soft gray */
@@ -109,5 +228,11 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }

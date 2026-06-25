@@ -1,596 +1,772 @@
-"use client"
+'use client'
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react"
-import { Plus, Trash2, CalendarDays, Utensils, TrendingDown, TrendingUp, Sparkles, Loader2, History, AlertTriangle, CheckCircle2, Search } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAppStore } from "@/lib/store"
-import { Badge } from "@/components/ui/badge"
-import { FINAL_BACKEND_URL, fetchWithAuth } from "@/lib/backend-api"
+import { useState, useMemo, useEffect, useRef } from 'react'
+import {
+  ChevronLeft, ChevronRight, Plus, Trash2, Search, Sparkles, X, Loader2, CalendarDays,
+  Sunrise, Sun, Moon, Cookie, Leaf, Drumstick, Egg, Apple, Milk, Coffee, Fish,
+  UtensilsCrossed, Camera, Flame, Candy, Droplets, Shrimp, Beef, Salad, Wheat,
+  CakeSlice, Croissant, Sandwich, Pizza, Soup, BookOpen, type LucideIcon,
+} from 'lucide-react'
+import { useAppStore } from '@/lib/store'
+import { CarrotMascot } from '@/components/ui/error-mascots'
+import { FINAL_BACKEND_URL, fetchWithAuth } from '@/lib/backend-api'
+import { LoadingFruits } from '@/components/ui/loading-fruits'
 
-const MEAL_TYPES = [
-  { value: "breakfast", label: "มื้อเช้า (Breakfast)", emoji: "🌅" },
-  { value: "lunch", label: "มื้อเที่ยง (Lunch)", emoji: "☀️" },
-  { value: "dinner", label: "มื้อเย็น (Dinner)", emoji: "🌙" },
-  { value: "snack", label: "ของว่าง (Snack)", emoji: "🍿" },
-]
+type SubTab = 'diary' | 'scan' | 'library'
+type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
-const QUICK_ADD = [
-  { name: "ข้าวกะเพราไก่ไข่ดาว", mealType: "lunch", calories: 550, protein: 25, carbs: 65, fat: 18 },
-  { name: "ข้าวมันไก่", mealType: "lunch", calories: 480, protein: 28, carbs: 55, fat: 15 },
-  { name: "โยเกิร์ตกรีก + กราโนล่า", mealType: "breakfast", calories: 250, protein: 15, carbs: 30, fat: 8 },
-  { name: "ส้มตำ", mealType: "dinner", calories: 120, protein: 3, carbs: 15, fat: 5 },
-  { name: "กล้วยน้ำว้า 2 ลูก", mealType: "snack", calories: 180, protein: 2, carbs: 42, fat: 0.5 },
-  { name: "ชาเขียวมัทฉะ ลาเต้", mealType: "snack", calories: 160, protein: 5, carbs: 25, fat: 4 },
-]
-
-interface FoodSuggestion {
-  id: string
-  name: string
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-  source: string
+const MEAL_LABELS: Record<MealType, string> = {
+  breakfast: 'เช้า', lunch: 'กลางวัน', dinner: 'เย็น', snack: 'ของว่าง',
+}
+const MEAL_ICONS: Record<MealType, LucideIcon> = {
+  breakfast: Sunrise, lunch: Sun, dinner: Moon, snack: Cookie,
+}
+// Muted, bordered tints rather than solid saturated fills — reads as a
+// data label, not a toy badge.
+const MEAL_STYLES: Record<MealType, string> = {
+  breakfast: 'bg-amber-50 text-amber-700 border border-amber-100',
+  lunch:     'bg-sky-50 text-sky-700 border border-sky-100',
+  dinner:    'bg-violet-50 text-violet-700 border border-violet-100',
+  snack:     'bg-emerald-50 text-emerald-700 border border-emerald-100',
 }
 
-interface FoodLogPageProps {
-  tdee?: number
+interface MenuItem {
+  id: number; name: string; cal: number; protein: number; carbs: number; fat: number
+  category: string; icon: LucideIcon
 }
+
+const DRINK_KEYWORDS = ['นม', 'กาแฟ', 'ชา', 'น้ำ', 'โอเลี้ยง', 'ลาเต้']
+
+// จับคู่ชื่อเมนูกับไอคอนที่ตรงกับชนิดอาหารจริง (ไม่ใช่แค่หมวดสารอาหาร) —
+// เรียงจากเฉพาะเจาะจงไปกว้าง ตัวแรกที่ match ชื่อจะถูกใช้
+const FOOD_ICON_RULES: { keywords: string[]; icon: LucideIcon }[] = [
+  { keywords: ['ไข่'], icon: Egg },
+  { keywords: ['กุ้ง', 'ปู', 'หมึก'], icon: Shrimp },
+  { keywords: ['ปลา', 'แซลมอน', 'ทูน่า'], icon: Fish },
+  { keywords: ['ไก่'], icon: Drumstick },
+  { keywords: ['หมู', 'เนื้อ', 'วัว', 'สเต็ก'], icon: Beef },
+  { keywords: ['เค้ก', 'บราวนี่'], icon: CakeSlice },
+  { keywords: ['ขนมปัง', 'ครัวซองต์'], icon: Croissant },
+  { keywords: ['แซนวิช'], icon: Sandwich },
+  { keywords: ['พิซซ่า'], icon: Pizza },
+  { keywords: ['โยเกิร์ต', 'นม'], icon: Milk },
+  { keywords: ['กาแฟ', 'ชา', 'มัทฉะ', 'ลาเต้', 'โอเลี้ยง'], icon: Coffee },
+  { keywords: ['สลัด', 'ส้มตำ', 'ผัก'], icon: Salad },
+  { keywords: ['กล้วย', 'ผลไม้', 'แอปเปิ้ล', 'ส้ม'], icon: Apple },
+  { keywords: ['ข้าว', 'เส้น', 'บะหมี่', 'วุ้นเส้น', 'ก๋วยเตี๋ยว'], icon: Wheat },
+  { keywords: ['ต้ม', 'แกง', 'ซุป'], icon: Soup },
+]
+
+function categoryFallbackIcon(category: string): LucideIcon {
+  if (category === 'เครื่องดื่ม') return Coffee
+  if (category === 'แคลต่ำ') return Leaf
+  if (category === 'โปรตีนสูง') return Drumstick
+  return UtensilsCrossed
+}
+
+function getFoodIcon(name: string, category: string): LucideIcon {
+  const rule = FOOD_ICON_RULES.find(r => r.keywords.some(k => name.includes(k)))
+  return rule ? rule.icon : categoryFallbackIcon(category)
+}
+
+function classifyMenu(name: string, cal: number, protein: number): { category: string; icon: LucideIcon } {
+  let category: string
+  if (DRINK_KEYWORDS.some(k => name.includes(k))) category = 'เครื่องดื่ม'
+  else if (cal <= 100) category = 'แคลต่ำ'
+  else if (cal > 0 && (protein * 4) / cal >= 0.3) category = 'โปรตีนสูง'
+  else category = 'คาร์บ'
+  return { category, icon: getFoodIcon(name, category) }
+}
+
+// Used only if the /api/food/popular call fails (e.g. offline) so the tab isn't empty.
+const FALLBACK_MENUS: MenuItem[] = [
+  { id: 1, name: 'ข้าวมันไก่',      cal: 550, protein: 28, carbs: 55, fat: 15, ...classifyMenu('ข้าวมันไก่', 550, 28) },
+  { id: 2, name: 'ส้มตำไทย',        cal: 120, protein: 3,  carbs: 15, fat: 5,  ...classifyMenu('ส้มตำไทย', 120, 3) },
+  { id: 3, name: 'ไข่ดาว',          cal: 90,  protein: 6,  carbs: 0,  fat: 7,  ...classifyMenu('ไข่ดาว', 90, 6) },
+  { id: 4, name: 'อกไก่นึ่ง',       cal: 165, protein: 31, carbs: 0,  fat: 3,  ...classifyMenu('อกไก่นึ่ง', 165, 31) },
+  { id: 5, name: 'กล้วยหอม',        cal: 89,  protein: 1,  carbs: 23, fat: 0,  ...classifyMenu('กล้วยหอม', 89, 1) },
+  { id: 6, name: 'นมไขมันต่ำ',      cal: 85,  protein: 8,  carbs: 12, fat: 0,  ...classifyMenu('นมไขมันต่ำ', 85, 8) },
+  { id: 7, name: 'กาแฟดำ',          cal: 5,   protein: 0,  carbs: 0,  fat: 0,  ...classifyMenu('กาแฟดำ', 5, 0) },
+  { id: 8, name: 'ปลาแซลมอนย่าง',  cal: 220, protein: 25, carbs: 0,  fat: 12, ...classifyMenu('ปลาแซลมอนย่าง', 220, 25) },
+]
+
+const LIB_CATEGORIES = ['ทั้งหมด', 'แคลต่ำ', 'โปรตีนสูง', 'เครื่องดื่ม', 'คาร์บ']
+
+// ไอคอนแต่ละการ์ดในคลังเมนูเคยใช้สีเขียว (bg-accent) ซ้ำทุกใบหมดเลย — แยกสีตามหมวดให้ดูมีมิติ
+const LIB_CATEGORY_STYLE: Record<string, { bg: string; text: string }> = {
+  'แคลต่ำ':    { bg: 'bg-green-50',  text: 'text-green-600' },
+  'โปรตีนสูง': { bg: 'bg-blue-50',   text: 'text-blue-600' },
+  'เครื่องดื่ม': { bg: 'bg-amber-50',  text: 'text-amber-600' },
+  'คาร์บ':     { bg: 'bg-orange-50', text: 'text-orange-600' },
+}
+const THAI_MONTHS    = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+const THAI_DAYS      = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
+
+function getWeekDays(anchor: Date) {
+  const dow = anchor.getDay()
+  const mon = new Date(anchor)
+  mon.setDate(anchor.getDate() - ((dow + 6) % 7))
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(mon)
+    d.setDate(mon.getDate() + i)
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const fullDate = `${year}-${month}-${day}`
+    return { day: THAI_DAYS[d.getDay()], date: d.getDate(), fullDate }
+  })
+}
+
+function getMonthGrid(anchor: Date) {
+  const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+  const startOffset = (firstOfMonth.getDay() + 6) % 7 // Monday-start padding
+  const gridStart = new Date(firstOfMonth)
+  gridStart.setDate(firstOfMonth.getDate() - startOffset)
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart)
+    d.setDate(gridStart.getDate() + i)
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return { date: d, fullDate: `${year}-${month}-${day}`, inCurrentMonth: d.getMonth() === anchor.getMonth() }
+  })
+}
+
+function scoreChip(score: number) {
+  if (score >= 70) return 'text-green-600 bg-green-50 border-green-200'
+  if (score >= 50) return 'text-yellow-600 bg-yellow-50 border-yellow-200'
+  return 'text-red-500 bg-red-50 border-red-200'
+}
+
+interface FoodLogPageProps { tdee?: number }
 
 export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
   const { foodEntries, addFoodEntry, removeFoodEntry, scanHistory } = useAppStore()
+
+  const today    = new Date()
+  const tYear = today.getFullYear()
+  const tMonth = String(today.getMonth() + 1).padStart(2, '0')
+  const tDay = String(today.getDate()).padStart(2, '0')
+  const todayStr = `${tYear}-${tMonth}-${tDay}`
+
+  const [subTab,       setSubTab]       = useState<SubTab>('diary')
+  const [weekAnchor,   setWeekAnchor]   = useState(today)
+  const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [libCategory,  setLibCategory]  = useState('ทั้งหมด')
+  const [showForm,     setShowForm]     = useState(false)
+  const [estimating,   setEstimating]   = useState(false)
+  const [popularMenus, setPopularMenus] = useState<MenuItem[] | null>(null)
+  const [pickingMealFor, setPickingMealFor] = useState<MenuItem | null>(null)
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [pickerMonth, setPickerMonth] = useState(today)
   const [form, setForm] = useState({
-    name: "",
-    mealType: "breakfast",
-    calories: "",
-    protein: "",
-    carbs: "",
-    fat: "",
+    name: '', meal: 'breakfast' as MealType, calories: '', protein: '', carbs: '', fat: '',
   })
-  const [estimating, setEstimating] = useState(false)
-  const [estimateError, setEstimateError] = useState<string | null>(null)
 
-  // ── Autocomplete state ───────────────────────────────────────────────────
-  const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([])
+  // ── Catalog search (ค้นคลังเมนูกลางก่อนเรียก AI — ฟรี ไม่เปลืองโทเคน) ──
+  const [catalogResults, setCatalogResults] = useState<
+    { id: string; name: string; calories: number; protein: number; carbs: number; fat: number }[]
+  >([])
+  const [searchingCatalog, setSearchingCatalog] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [highlightIndex, setHighlightIndex] = useState(-1)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const wrapperRef = useRef<HTMLDivElement>(null)
+  const lastPickedNameRef = useRef<string | null>(null)
 
-  // Hide dropdown when clicking outside
+  // Auto-open form if navigated with ?action=add
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('action') === 'add') {
+        setShowForm(true)
+        const type = params.get('type')
+        if (type && ['breakfast', 'lunch', 'dinner', 'snack'].includes(type)) {
+          setForm(f => ({ ...f, meal: type as MealType }))
+        }
+        // ลบ param ออกจาก URL เพื่อไม่ให้โชว์ฟอร์มซ้ำตอนรีเฟรช
+        window.history.replaceState({}, '', window.location.pathname)
       }
     }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  // Debounced search
-  const searchFood = useCallback(async (query: string) => {
-    if (!query.trim() || query.trim().length < 1) {
-      setSuggestions([])
+  useEffect(() => {
+    if (subTab !== 'library' || popularMenus !== null) return
+    let cancelled = false
+    fetchWithAuth(`${FINAL_BACKEND_URL}/api/food/popular?limit=20`)
+      .then(res => { if (!res.ok) throw new Error(); return res.json() })
+      .then((items: { id: string; name: string; calories: number; protein: number; carbs: number; fat: number }[]) => {
+        if (cancelled) return
+        setPopularMenus(items.map((item, i) => ({
+          id: i,
+          name: item.name,
+          cal: Math.round(item.calories),
+          protein: Math.round(item.protein),
+          carbs: Math.round(item.carbs),
+          fat: Math.round(item.fat),
+          ...classifyMenu(item.name, item.calories, item.protein),
+        })))
+      })
+      .catch(() => { if (!cancelled) setPopularMenus(FALLBACK_MENUS) })
+    return () => { cancelled = true }
+  }, [subTab, popularMenus])
+
+  // ค้นคลังเมนูกลาง (GlobalFoodItem) แบบ debounce ทุกครั้งที่พิมพ์ชื่ออาหาร —
+  // ถ้ามีคนเคยบันทึก/ให้ AI ประมาณชื่อนี้ไปแล้ว จะเจอที่นี่ก่อนเสมอ ไม่ต้องเรียก AI ซ้ำ
+  useEffect(() => {
+    const query = form.name.trim()
+    if (!showForm || query.length < 2 || query === lastPickedNameRef.current) {
+      setCatalogResults([])
       setShowSuggestions(false)
       return
     }
-    setSearchLoading(true)
-    try {
-      const res = await fetchWithAuth(
-        `${FINAL_BACKEND_URL}/api/food/search?query=${encodeURIComponent(query)}&limit=7`
-      )
-      if (res.ok) {
-        const data: FoodSuggestion[] = await res.json()
-        setSuggestions(data)
-        setShowSuggestions(data.length > 0)
-        setHighlightIndex(-1)
-      }
-    } catch {
-      setSuggestions([])
-    } finally {
-      setSearchLoading(false)
-    }
-  }, [])
+    let cancelled = false
+    setSearchingCatalog(true)
+    const timer = setTimeout(() => {
+      fetchWithAuth(`${FINAL_BACKEND_URL}/api/food/search?query=${encodeURIComponent(query)}&limit=6`)
+        .then(res => { if (!res.ok) throw new Error(); return res.json() })
+        .then((items: { id: string; name: string; calories: number; protein: number; carbs: number; fat: number }[]) => {
+          if (cancelled) return
+          setCatalogResults(items)
+          setShowSuggestions(items.length > 0)
+        })
+        .catch(() => { if (!cancelled) { setCatalogResults([]); setShowSuggestions(false) } })
+        .finally(() => { if (!cancelled) setSearchingCatalog(false) })
+    }, 350)
+    return () => { cancelled = true; clearTimeout(timer); setSearchingCatalog(false) }
+  }, [form.name, showForm])
 
-  const handleNameChange = (value: string) => {
-    setForm((p) => ({ ...p, name: value }))
-    setEstimateError(null)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => searchFood(value), 300)
-  }
-
-  const handleSelectSuggestion = (item: FoodSuggestion) => {
-    setForm((p) => ({
-      ...p,
+  const selectCatalogItem = (item: { name: string; calories: number; protein: number; carbs: number; fat: number }) => {
+    lastPickedNameRef.current = item.name
+    setForm(f => ({
+      ...f,
       name: item.name,
-      calories: String(item.calories),
-      protein: String(item.protein),
-      carbs: String(item.carbs),
-      fat: String(item.fat),
+      calories: String(Math.round(item.calories)),
+      protein: String(Math.round(item.protein)),
+      carbs: String(Math.round(item.carbs)),
+      fat: String(Math.round(item.fat)),
     }))
-    setSuggestions([])
     setShowSuggestions(false)
-    setEstimateError(null)
   }
 
-  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showSuggestions || suggestions.length === 0) return
-    if (e.key === "ArrowDown") {
-      e.preventDefault()
-      setHighlightIndex((i) => Math.min(i + 1, suggestions.length - 1))
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault()
-      setHighlightIndex((i) => Math.max(i - 1, -1))
-    } else if (e.key === "Enter" && highlightIndex >= 0) {
-      e.preventDefault()
-      handleSelectSuggestion(suggestions[highlightIndex])
-    } else if (e.key === "Escape") {
-      setShowSuggestions(false)
-    }
+  const weekDays   = useMemo(() => getWeekDays(weekAnchor), [weekAnchor])
+  const monthLabel = useMemo(() => {
+    const dt = new Date(weekDays[0].fullDate)
+    return `${THAI_MONTHS[dt.getMonth()]} ${dt.getFullYear() + 543}`
+  }, [weekDays])
+
+  const monthGrid = useMemo(() => getMonthGrid(pickerMonth), [pickerMonth])
+  const pickerMonthLabel = `${THAI_MONTHS[pickerMonth.getMonth()]} ${pickerMonth.getFullYear() + 543}`
+
+  const shiftPickerMonth = (dir: -1 | 1) => {
+    setPickerMonth(d => new Date(d.getFullYear(), d.getMonth() + dir, 1))
   }
 
-  const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }))
+  const pickDate = (fullDate: string) => {
+    setSelectedDate(fullDate)
+    setWeekAnchor(new Date(fullDate))
+    setShowMonthPicker(false)
+  }
 
-  // ฟังก์ชันเรียกคำนวณผ่านโมเดลที่เสถียรที่สุด (gemini-1.5-flash) ป้องกัน 404/403/429
-  const handleEstimate = async () => {
-    if (!form.name.trim()) return;
-
-    setEstimating(true);
-    setEstimateError(null);
-
-    try {
-      const res = await fetchWithAuth(
-        `${FINAL_BACKEND_URL}/api/analyze/estimate`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            food_name: form.name.trim(),
-          }),
-        }
-      );
-
-      if (!res.ok) {
-        if (res.status === 429) {
-          setEstimateError("AI กำลังมีผู้ใช้งานจำนวนมาก กรุณาลองใหม่อีกครั้ง");
-        } else if (res.status === 404) {
-          setEstimateError("ไม่พบบริการวิเคราะห์อาหาร");
-        } else {
-          setEstimateError(`เกิดข้อผิดพลาด (${res.status})`);
-        }
-        return;
-      }
-
-      const data = await res.json();
-
-      setForm((prev) => ({
-        ...prev,
-        calories: String(data.calories ?? 0),
-        protein: String(data.protein ?? 0),
-        carbs: String(data.carbs ?? 0),
-        fat: String(data.fat ?? 0),
-      }));
-    } catch (err) {
-      console.error("Estimate Error:", err);
-      setEstimateError("ไม่สามารถเชื่อมต่อระบบวิเคราะห์ได้ กรุณาลองใหม่อีกครั้ง");
-    } finally {
-      setEstimating(false);
-    }
-  };
-
-  // Filter today's entries
-  const todayKey = new Date().toISOString().slice(0, 10)
-  const todayEntries = useMemo(
-    () => foodEntries.filter((e) => e.date === todayKey),
-    [foodEntries, todayKey]
+  const dayEntries = useMemo(
+    () => foodEntries.filter(e => e.date === selectedDate),
+    [foodEntries, selectedDate]
   )
 
-  const totalCal = todayEntries.reduce((a, b) => a + b.calories, 0)
-  const totalProtein = todayEntries.reduce((a, b) => a + b.protein, 0)
-  const totalCarbs = todayEntries.reduce((a, b) => a + b.carbs, 0)
-  const totalFat = todayEntries.reduce((a, b) => a + b.fat, 0)
-  const calProgress = Math.min((totalCal / tdee) * 100, 100)
-  const remaining = tdee - totalCal
+  const totalCal = dayEntries.reduce((s, e) => s + e.calories, 0)
+  const pctOfTarget = Math.min(100, Math.round((totalCal / tdee) * 100))
+  const totalProtein = dayEntries.reduce((s, e) => s + e.protein, 0)
+  const totalCarbs   = dayEntries.reduce((s, e) => s + e.carbs, 0)
+  const totalFat     = dayEntries.reduce((s, e) => s + e.fat, 0)
 
-  const today = new Date().toLocaleDateString("th-TH", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  })
+  const groupedMeals = useMemo(() =>
+    (['breakfast', 'lunch', 'dinner', 'snack'] as MealType[])
+      .map(type => ({ type, items: dayEntries.filter(e => e.mealType === type) }))
+      .filter(g => g.items.length > 0),
+    [dayEntries]
+  )
 
-  // Group by meal type
-  const grouped = useMemo(() => {
-    const map: Record<string, typeof todayEntries> = {}
-    for (const entry of todayEntries) {
-      if (!map[entry.mealType]) map[entry.mealType] = []
-      map[entry.mealType].push(entry)
+  const filteredMenus = useMemo(() => {
+    const menus = popularMenus ?? []
+    return libCategory === 'ทั้งหมด' ? menus : menus.filter(m => m.category === libCategory)
+  }, [popularMenus, libCategory])
+
+  const handleEstimate = async () => {
+    if (!form.name.trim() || estimating) return
+    setShowSuggestions(false)
+    setEstimating(true)
+    try {
+      const res = await fetchWithAuth(
+        `${FINAL_BACKEND_URL}/api/analyze/estimate?save=false`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ food_name: form.name }) }
+      )
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      setForm(f => ({
+        ...f,
+        calories: String(Math.round(data.calories ?? 0)),
+        protein:  String(Math.round(data.protein  ?? 0)),
+        carbs:    String(Math.round(data.carbs     ?? 0)),
+        fat:      String(Math.round(data.fat       ?? 0)),
+      }))
+    } catch {
+      // silent — user can fill manually
+    } finally {
+      setEstimating(false)
     }
-    return map
-  }, [todayEntries])
-
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.name || !form.calories) return
-    addFoodEntry({
-      name: form.name,
-      mealType: form.mealType,
-      calories: parseFloat(form.calories) || 0,
-      protein: parseFloat(form.protein) || 0,
-      carbs: parseFloat(form.carbs) || 0,
-      fat: parseFloat(form.fat) || 0,
-    })
-    setForm({ name: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "" })
   }
 
-  const handleQuickAdd = (item: typeof QUICK_ADD[0]) => {
-    addFoodEntry(item)
+  const handleAddMeal = () => {
+    if (!form.name || !form.calories) return
+    addFoodEntry({
+      name:      form.name,
+      mealType:  form.meal,
+      calories:  Number(form.calories),
+      protein:   Number(form.protein)  || 0,
+      carbs:     Number(form.carbs)    || 0,
+      fat:       Number(form.fat)      || 0,
+    })
+    setForm({ name: '', meal: 'breakfast', calories: '', protein: '', carbs: '', fat: '' })
+    lastPickedNameRef.current = null
+    setShowForm(false)
+  }
+
+  const shiftWeek = (dir: -1 | 1) => {
+    const d = new Date(weekAnchor)
+    d.setDate(d.getDate() + dir * 7)
+    setWeekAnchor(d)
   }
 
   return (
-    <div className="p-4 md:max-w-5xl md:mx-auto">
-      <Tabs defaultValue="diary" className="w-full">
-        <div className="flex justify-center mb-6">
-          <TabsList className="grid w-full max-w-sm grid-cols-2">
-            <TabsTrigger value="diary" className="text-sm">
-              <Utensils className="w-4 h-4 mr-2" />
-              ไดอารี่อาหาร
-            </TabsTrigger>
-            <TabsTrigger value="scans" className="text-sm">
-              <History className="w-4 h-4 mr-2" />
-              ประวัติวิเคราะห์
-            </TabsTrigger>
-          </TabsList>
+    <div className="p-4 space-y-4 pb-6 max-w-2xl lg:max-w-6xl mx-auto">
+      <div className="pt-2 flex items-center gap-3">
+        <div className="w-11 h-11 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+          <BookOpen size={20} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-foreground">บันทึกอาหาร</h1>
+          <p className="text-sm text-muted-foreground">ไดอารี่อาหารประจำวัน</p>
+        </div>
+      </div>
+
+      {/* Calendar Strip */}
+      <div className="bg-card rounded-2xl p-3 shadow-sm border border-border relative">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => shiftWeek(-1)} className="p-2.5 -m-1 rounded-lg hover:bg-muted flex items-center justify-center">
+            <ChevronLeft size={16} className="text-muted-foreground" />
+          </button>
+          <button
+            onClick={() => { setPickerMonth(weekAnchor); setShowMonthPicker(v => !v) }}
+            className="flex items-center gap-1.5 px-3 py-1.5 -my-1.5 rounded-xl hover:bg-muted transition-colors"
+          >
+            <CalendarDays size={14} className="text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">{monthLabel}</p>
+          </button>
+          <button onClick={() => shiftWeek(1)} className="p-2.5 -m-1 rounded-lg hover:bg-muted flex items-center justify-center">
+            <ChevronRight size={16} className="text-muted-foreground" />
+          </button>
         </div>
 
-        {/* ─── TAB 1: FOOD DIARY ────────────────────────────────────── */}
-        <TabsContent value="diary" className="mt-0 outline-none">
-          <div className="flex flex-col md:flex-row gap-4">
-
-            {/* Left column: Add form */}
-            <div className="w-full md:w-[400px] md:flex-shrink-0 space-y-3">
-              <div className="bg-white rounded-2xl border border-border p-4 space-y-4">
-                <h2 className="font-bold text-base text-foreground">เพิ่มรายการอาหารประจำวัน</h2>
-
-                <form onSubmit={handleAdd} className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground">ชื่อรายการอาหาร</Label>
-                    {/* ── Autocomplete wrapper ── */}
-                    <div ref={wrapperRef} className="relative">
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                          {searchLoading && (
-                            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground animate-spin" />
-                          )}
-                          <Input
-                            placeholder="พิมพ์ค้นหา เช่น กะเพรา, ข้าวมัน..."
-                            value={form.name}
-                            onChange={(e) => handleNameChange(e.target.value)}
-                            onKeyDown={handleNameKeyDown}
-                            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                            className="h-11 pl-8 pr-8 flex-1"
-                            required
-                            autoComplete="off"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleEstimate}
-                          disabled={estimating || !form.name.trim()}
-                          title="ให้ AI ประมาณค่าโภชนาการ (ใช้เมื่อไม่พบในรายการ)"
-                          className="h-11 px-3 rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 hover:from-violet-600 hover:to-indigo-600 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-                        >
-                          {estimating ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-4 h-4" />
-                          )}
-                          <span className="hidden sm:inline">AI คำนวณ</span>
-                        </button>
-                      </div>
-
-                      {/* ── Suggestion Dropdown ── */}
-                      {showSuggestions && suggestions.length > 0 && (
-                        <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 bg-white rounded-xl border border-border shadow-lg overflow-hidden">
-                          <div className="px-3 py-1.5 bg-muted/50 border-b border-border">
-                            <p className="text-[10px] text-muted-foreground font-medium">
-                              🗂️ พบ {suggestions.length} รายการจากคลัง — คลิกเพื่อเลือกและกรอกค่าอัตโนมัติ
-                            </p>
-                          </div>
-                          <ul className="max-h-60 overflow-y-auto divide-y divide-border/40">
-                            {suggestions.map((item, idx) => (
-                              <li key={item.id}>
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(item) }}
-                                  className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-2 transition-colors ${
-                                    idx === highlightIndex
-                                      ? "bg-primary/10 text-primary"
-                                      : "hover:bg-muted/60"
-                                  }`}
-                                >
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-semibold text-foreground truncate">{item.name}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                                      P {item.protein}g · C {item.carbs}g · F {item.fat}g
-                                    </p>
-                                  </div>
-                                  <div className="text-right shrink-0">
-                                    <span className="text-sm font-bold text-primary">{item.calories}</span>
-                                    <span className="text-[10px] text-muted-foreground ml-0.5">kcal</span>
-                                  </div>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                    {estimateError && (
-                      <p className="text-xs text-destructive flex items-center gap-1 mt-1">
-                        <AlertTriangle className="w-3 h-3" /> {estimateError}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground">มื้ออาหารหลัก</Label>
-                    <Select value={form.mealType} onValueChange={(v) => set("mealType", v)}>
-                      <SelectTrigger className="h-11">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MEAL_TYPES.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.emoji} {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { key: "calories", label: "พลังงาน (KCAL)", placeholder: "350" },
-                      { key: "protein", label: "โปรตีน (กรัม)", placeholder: "15" },
-                      { key: "carbs", label: "คาร์บ (กรัม)", placeholder: "45" },
-                      { key: "fat", label: "ไขมัน (กรัม)", placeholder: "8" },
-                    ].map(({ key, label, placeholder }) => (
-                      <div key={key} className="space-y-1.5">
-                        <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="any"
-                          placeholder={placeholder}
-                          value={form[key as keyof typeof form]}
-                          onChange={(e) => set(key, e.target.value)}
-                          className="h-11"
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <Button type="submit" className="w-full h-12 bg-primary hover:bg-primary/90 active:scale-[0.98] text-white font-semibold text-sm mt-2">
-                    <Plus className="w-4 h-4 mr-2" />
-                    บันทึกมื้ออาหารลงไดอารี่
-                  </Button>
-                </form>
+        {showMonthPicker && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setShowMonthPicker(false)} />
+            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-40 bg-card border border-border rounded-2xl shadow-lg p-3 w-72">
+              <div className="flex items-center justify-between mb-2">
+                <button onClick={() => shiftPickerMonth(-1)} className="p-2 rounded-lg hover:bg-muted">
+                  <ChevronLeft size={15} className="text-muted-foreground" />
+                </button>
+                <p className="text-sm font-semibold text-foreground">{pickerMonthLabel}</p>
+                <button onClick={() => shiftPickerMonth(1)} className="p-2 rounded-lg hover:bg-muted">
+                  <ChevronRight size={15} className="text-muted-foreground" />
+                </button>
               </div>
-
-              {/* Quick Add section */}
-              <div className="bg-white rounded-2xl border border-border p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Utensils className="w-4 h-4 text-primary" />
-                  <p className="font-bold text-sm text-foreground">เมนูยอดนิยม (กดเพิ่มเลย)</p>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {QUICK_ADD.map((item) => (
-                    <button
-                      key={item.name}
-                      onClick={() => handleQuickAdd(item)}
-                      className="text-left rounded-xl border border-border p-2.5 hover:bg-muted/50 active:scale-[0.98] transition-all"
-                    >
-                      <p className="text-xs font-semibold text-foreground truncate">{item.name}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{item.calories} kcal</p>
-                    </button>
-                  ))}
-                </div>
+              <div className="grid grid-cols-7 mb-1">
+                {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map(d => (
+                  <span key={d} className="text-[10px] text-center text-muted-foreground py-1">{d}</span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-y-1">
+                {monthGrid.map(({ date, fullDate, inCurrentMonth }) => (
+                  <button
+                    key={fullDate}
+                    onClick={() => pickDate(fullDate)}
+                    className={`text-xs h-8 w-8 mx-auto rounded-full flex items-center justify-center tabular-nums transition-colors ${
+                      selectedDate === fullDate
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : fullDate === todayStr
+                        ? 'text-primary font-semibold hover:bg-muted'
+                        : inCurrentMonth
+                        ? 'text-foreground hover:bg-muted'
+                        : 'text-muted-foreground/40 hover:bg-muted'
+                    }`}
+                  >
+                    {date.getDate()}
+                  </button>
+                ))}
               </div>
             </div>
+          </>
+        )}
+        <div className="flex justify-between">
+          {weekDays.map(d => (
+            <button key={d.fullDate} onClick={() => setSelectedDate(d.fullDate)}
+              className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all ${
+                selectedDate === d.fullDate ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+              }`}>
+              <span className={`text-xs ${selectedDate === d.fullDate ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>{d.day}</span>
+              <span className={`text-sm font-semibold tabular-nums ${selectedDate === d.fullDate ? 'text-primary-foreground' : 'text-foreground'}`}>{d.date}</span>
+              {d.fullDate === todayStr && (
+                <span className={`w-1 h-1 rounded-full ${selectedDate === d.fullDate ? 'bg-primary-foreground/60' : 'bg-primary'}`} />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            {/* Right column: Daily summary */}
-            <div className="flex-1 space-y-3">
-              {/* Progress card */}
-              <div className="bg-white rounded-2xl border border-border p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <CalendarDays className="w-4 h-4 text-primary" />
-                  <div>
-                    <p className="font-bold text-sm text-foreground">สรุปรายการอาหารประจำวันนี้</p>
-                    <p className="text-xs text-muted-foreground">{today}</p>
-                  </div>
-                </div>
+      {/* Sub Tabs */}
+      <div className="bg-muted/60 rounded-2xl p-1 flex gap-1">
+        {([['diary', 'ไดอารี่อาหาร'], ['scan', 'ประวัติสแกน'], ['library', 'คลังเมนู']] as [SubTab, string][]).map(([key, label]) => (
+          <button key={key} onClick={() => setSubTab(key)}
+            className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all ${
+              subTab === key ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-                {/* Calorie progress */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs font-medium">
-                    <span className="text-muted-foreground">พลังงานรวมสะสมวันนี้</span>
-                    <span className="text-foreground font-bold">
-                      {totalCal.toLocaleString()} / {tdee.toLocaleString()} kcal
-                    </span>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-3">
-                    <div
-                      className={`h-3 rounded-full transition-all duration-500 ${calProgress >= 100 ? "bg-destructive" : calProgress >= 80 ? "bg-secondary" : "bg-primary"}`}
-                      style={{ width: `${calProgress}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {remaining > 0 ? (
-                      <TrendingDown className="w-3 h-3 text-primary" />
-                    ) : (
-                      <TrendingUp className="w-3 h-3 text-destructive" />
-                    )}
-                    <p className={`text-[11px] font-medium ${calProgress >= 100 ? "text-destructive" : "text-primary"}`}>
-                      {calProgress >= 100 ? `เกินเป้าหมายไป ${Math.abs(remaining).toLocaleString()} kcal` : `เหลืออีก ${remaining.toLocaleString()} kcal`}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Macro totals */}
-                {todayEntries.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2 mt-3">
-                    {[
-                      { label: "โปรตีน", val: totalProtein, unit: "g", color: "text-blue-600", bg: "bg-blue-50" },
-                      { label: "คาร์บ", val: totalCarbs, unit: "g", color: "text-secondary", bg: "bg-orange-50" },
-                      { label: "ไขมัน", val: totalFat, unit: "g", color: "text-destructive", bg: "bg-red-50" },
-                    ].map(({ label, val, unit, color, bg }) => (
-                      <div key={label} className={`${bg} rounded-xl p-2.5 text-center`}>
-                        <p className={`text-base font-extrabold ${color}`}>{val.toFixed(1)}<span className="text-[10px] ml-0.5">{unit}</span></p>
-                        <p className="text-[10px] text-muted-foreground">{label}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+      {/* ── Diary Tab ── */}
+      {subTab === 'diary' && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="xl:col-span-2 space-y-4">
+          <div className="bg-card rounded-2xl px-4 py-3 border border-border shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <p className="text-xs text-muted-foreground">แคลอรีรวม</p>
+                <p className="text-2xl font-bold text-foreground tabular-nums">
+                  {totalCal.toLocaleString()}
+                  <span className="text-sm font-normal ml-1 text-muted-foreground">/ {tdee.toLocaleString()} kcal</span>
+                </p>
               </div>
-
-              {/* Entries list */}
-              <div className="bg-white rounded-2xl border border-border overflow-hidden">
-                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                  <p className="font-bold text-sm text-foreground">รายการอาหาร</p>
-                  {todayEntries.length > 0 && (
-                    <span className="text-[11px] text-muted-foreground">{todayEntries.length} รายการ</span>
-                  )}
-                </div>
-                {todayEntries.length === 0 ? (
-                  <div className="py-12 text-center text-muted-foreground text-sm flex flex-col items-center gap-2">
-                    <Utensils className="w-8 h-8 text-muted-foreground/30" />
-                    วันนี้คุณยังไม่ได้บันทึกเมนูอาหาร
-                  </div>
-                ) : (
-                  <div>
-                    {MEAL_TYPES.map((mealType) => {
-                      const items = grouped[mealType.value]
-                      if (!items || items.length === 0) return null
-                      const mealCal = items.reduce((s, e) => s + e.calories, 0)
-                      return (
-                        <div key={mealType.value}>
-                          <div className="px-4 py-2 bg-muted/30 flex items-center justify-between">
-                            <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                              {mealType.emoji} {mealType.label.split(" ")[0]}
-                            </span>
-                            <span className="text-[11px] font-medium text-muted-foreground">{mealCal} kcal</span>
-                          </div>
-                          <ul className="divide-y divide-border/50">
-                            {items.map((e) => (
-                              <li key={e.id} className="flex items-center gap-3 px-4 py-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-semibold text-foreground truncate">{e.name}</p>
-                                  <p className="text-[10px] text-muted-foreground">
-                                    {e.calories} kcal &middot; P {e.protein}g &middot; C {e.carbs}g &middot; F {e.fat}g
-                                  </p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => removeFoodEntry(e.id)}
-                                  className="text-muted-foreground hover:text-destructive transition-colors p-1 flex-shrink-0"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+              <button onClick={() => setShowForm(!showForm)}
+                className="bg-primary text-primary-foreground rounded-xl px-3 py-2 flex items-center gap-1.5 text-sm font-medium shadow-sm shrink-0">
+                <Plus size={16} />เพิ่มมื้ออาหาร
+              </button>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${pctOfTarget}%` }}
+              />
             </div>
           </div>
-        </TabsContent>
 
-        {/* ─── TAB 2: SCAN HISTORY (ดึงกลับมาครบถ้วนสมบูรณ์แล้ว) ─────────────────── */}
-        <TabsContent value="scans" className="mt-0 outline-none">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between px-1 mb-2">
-              <h2 className="font-bold text-base text-foreground">ประวัติการวิเคราะห์ทั้งหมด</h2>
-              <span className="text-xs text-muted-foreground">{scanHistory.length} รายการ</span>
-            </div>
+          {showForm && (
+            <div className="bg-card rounded-3xl p-4 shadow-sm border border-border space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-foreground">เพิ่มรายการอาหาร</h2>
+                <button onClick={() => setShowForm(false)}><X size={18} className="text-muted-foreground" /></button>
+              </div>
+              <div className="relative">
+                <div className="flex items-center border border-input rounded-xl overflow-hidden bg-background">
+                  <Search size={15} className="ml-3 text-muted-foreground shrink-0" />
+                  <input className="flex-1 px-2 py-2.5 text-sm bg-transparent outline-none"
+                    placeholder="ชื่ออาหาร... (ค้นคลังเมนูกลางก่อนอัตโนมัติ)" value={form.name}
+                    onChange={e => { lastPickedNameRef.current = null; setForm(f => ({ ...f, name: e.target.value })) }}
+                    onFocus={() => { if (catalogResults.length > 0) setShowSuggestions(true) }} />
+                  {searchingCatalog && <Loader2 size={13} className="text-muted-foreground animate-spin mr-2 shrink-0" />}
+                  <button
+                    type="button"
+                    onClick={handleEstimate}
+                    disabled={estimating || !form.name.trim()}
+                    className="mr-2 p-1.5 bg-accent rounded-lg disabled:opacity-40 hover:bg-primary/10 transition-colors"
+                    title="ไม่เจอในคลัง? ให้ AI ประมาณโภชนาการ"
+                  >
+                    {estimating
+                      ? <Loader2 size={13} className="text-primary animate-spin" />
+                      : <Sparkles size={13} className="text-primary" />}
+                  </button>
+                </div>
 
-            {scanHistory.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-border py-16 text-center flex flex-col items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                  <History className="w-6 h-6 text-muted-foreground" />
+                {showSuggestions && catalogResults.length > 0 && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 bg-card border border-border rounded-xl shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+                    <p className="text-[10px] text-muted-foreground px-3 pt-2 pb-1">มีคนบันทึกเมนูนี้ไว้แล้ว เลือกได้เลยไม่ต้องรอ AI</p>
+                    {catalogResults.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => selectCatalogItem(item)}
+                        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/60 transition-colors"
+                      >
+                        <span className="text-sm text-foreground truncate">{item.name}</span>
+                        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{Math.round(item.calories)} kcal</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">มื้ออาหาร</label>
+                  <select className="w-full border border-input rounded-xl px-3 py-2 text-sm bg-background outline-none"
+                    value={form.meal} onChange={e => setForm(f => ({ ...f, meal: e.target.value as MealType }))}>
+                    {(Object.keys(MEAL_LABELS) as MealType[]).map(k => (
+                      <option key={k} value={k}>{MEAL_LABELS[k]}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">ยังไม่มีประวัติการวิเคราะห์</p>
-                  <p className="text-xs text-muted-foreground mt-1 max-w-[200px] mx-auto">
-                    ลองใช้ AI Scanner สแกนฉลากโภชนาการเพื่อดูข้อมูลวิเคราะห์ที่นี่
-                  </p>
+                  <label className="text-xs text-muted-foreground mb-1 block">พลังงาน (kcal)</label>
+                  <input type="number" className="w-full border border-input rounded-xl px-3 py-2 text-sm bg-background outline-none"
+                    placeholder="0" value={form.calories} onChange={e => setForm(f => ({ ...f, calories: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">โปรตีน (g)</label>
+                  <input type="number" className="w-full border border-input rounded-xl px-3 py-2 text-sm bg-background outline-none"
+                    placeholder="0" value={form.protein} onChange={e => setForm(f => ({ ...f, protein: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">คาร์บ (g)</label>
+                  <input type="number" className="w-full border border-input rounded-xl px-3 py-2 text-sm bg-background outline-none"
+                    placeholder="0" value={form.carbs} onChange={e => setForm(f => ({ ...f, carbs: e.target.value }))} />
                 </div>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {[...scanHistory].reverse().map((scan) => {
-                  const isSafe = scan.status === "safe"
-                  const isMod = scan.status === "moderate"
-                  const isDanger = scan.status === "danger"
-                  return (
-                    <div key={scan.id} className="bg-white rounded-2xl border border-border p-4 space-y-3 hover:shadow-sm transition-shadow">
-                      <div className="flex justify-between items-start">
-                        <div className="min-w-0">
-                          <p className="font-bold text-sm text-foreground truncate pr-2">{scan.productName}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
-                            {new Date(scan.date).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}
-                          </p>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className={`shrink-0 ${isSafe ? "bg-green-50 text-green-700 border-green-200" :
-                            isDanger ? "bg-red-50 text-red-700 border-red-200" :
-                              "bg-orange-50 text-orange-700 border-orange-200"
-                            }`}
-                        >
-                          {isSafe ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertTriangle className="w-3 h-3 mr-1" />}
-                          คะแนน {scan.score}
-                        </Badge>
-                      </div>
+              <button onClick={handleAddMeal}
+                className="w-full bg-primary text-primary-foreground rounded-xl py-2.5 text-sm font-semibold">
+                บันทึกมื้ออาหารลงไดอารี่
+              </button>
+            </div>
+          )}
 
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-muted/50 p-2 rounded-lg">
-                          <p className="text-[10px] text-muted-foreground">พลังงาน</p>
-                          <p className="font-bold">{scan.calories} kcal</p>
+          {groupedMeals.length === 0 ? (
+            <div className="bg-card rounded-3xl p-6 shadow-sm border border-border text-center">
+              <div className="scale-70 -mb-9 flex justify-center">
+                <CarrotMascot />
+              </div>
+              <p className="text-sm font-semibold text-foreground">แครอทหิวจนตาเป็นหัวใจ~ 🥕💕</p>
+              <p className="text-xs text-muted-foreground mt-1">ยังไม่มีรายการอาหารเลยนะ บันทึกมื้อแรกกันเถอะ!</p>
+              <button onClick={() => setShowForm(true)} className="mt-3 text-sm text-primary font-medium">
+                + เพิ่มมื้ออาหาร
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {groupedMeals.map(group => {
+                const MealIcon = MEAL_ICONS[group.type]
+                return (
+                  <div key={group.type} className="bg-card rounded-3xl p-4 shadow-sm border border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${MEAL_STYLES[group.type]}`}>
+                        <MealIcon size={12} strokeWidth={2.25} />
+                        {MEAL_LABELS[group.type]}
+                      </span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {group.items.reduce((s, e) => s + e.calories, 0)} kcal
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {group.items.map(item => (
+                        <div key={item.id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
+                            <p className="text-xs text-muted-foreground tabular-nums">
+                              โปรตีน {item.protein}g · คาร์บ {item.carbs}g · ไขมัน {item.fat}g
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 ml-2">
+                            <p className="text-sm font-semibold text-primary tabular-nums">{item.calories}</p>
+                            <button onClick={() => removeFoodEntry(item.id)}
+                              className="p-2.5 -m-1 rounded-lg bg-red-50 flex items-center justify-center hover:bg-red-100 transition-colors">
+                              <Trash2 size={12} className="text-red-500" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="bg-muted/50 p-2 rounded-lg">
-                          <p className="text-[10px] text-muted-foreground">น้ำตาล</p>
-                          <p className={`font-bold ${scan.sugar > 24 ? "text-destructive" : ""}`}>{scan.sugar} g</p>
-                        </div>
-                        <div className="bg-muted/50 p-2 rounded-lg">
-                          <p className="text-[10px] text-muted-foreground">โซเดียม</p>
-                          <p className={`font-bold ${scan.sodium > 2000 ? "text-destructive" : ""}`}>{scan.sodium} mg</p>
-                        </div>
-                        <div className="bg-muted/50 p-2 rounded-lg">
-                          <p className="text-[10px] text-muted-foreground">ไขมันรวม</p>
-                          <p className={`font-bold ${scan.totalFat > 65 ? "text-destructive" : ""}`}>{scan.totalFat} g</p>
-                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Right rail: today's macro breakdown ── */}
+        <div className="space-y-4">
+          <div className="bg-card rounded-3xl p-4 shadow-sm border border-border">
+            <h3 className="text-sm font-semibold text-foreground mb-3">สรุปสารอาหารวันนี้</h3>
+            {dayEntries.length === 0 ? (
+              <p className="text-xs text-muted-foreground">ยังไม่มีข้อมูลของวันนี้</p>
+            ) : (
+              <div className="space-y-3">
+                {[
+                  { label: 'โปรตีน', value: totalProtein, color: 'bg-sky-500' },
+                  { label: 'คาร์บ', value: totalCarbs, color: 'bg-amber-500' },
+                  { label: 'ไขมัน', value: totalFat, color: 'bg-violet-500' },
+                ].map(m => {
+                  const max = Math.max(totalProtein, totalCarbs, totalFat, 1)
+                  return (
+                    <div key={m.label}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-muted-foreground">{m.label}</span>
+                        <span className="text-xs font-semibold text-foreground tabular-nums">{Math.round(m.value)}g</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className={`h-full rounded-full ${m.color}`} style={{ width: `${Math.round((m.value / max) * 100)}%` }} />
                       </div>
                     </div>
                   )
                 })}
+                <div className="pt-2 border-t border-border flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">มื้อที่บันทึกแล้ว</span>
+                  <span className="text-xs font-semibold text-foreground tabular-nums">{dayEntries.length} รายการ</span>
+                </div>
               </div>
             )}
           </div>
-        </TabsContent>
+        </div>
+        </div>
+      )}
 
-      </Tabs>
+      {/* ── Scan History Tab ── */}
+      {subTab === 'scan' && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {scanHistory.length === 0 ? (
+            <div className="xl:col-span-2 bg-card rounded-3xl p-8 shadow-sm border border-border text-center">
+              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-muted flex items-center justify-center">
+                <Camera size={20} className="text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">ยังไม่มีประวัติการสแกนฉลาก</p>
+              <p className="text-xs text-muted-foreground mt-1">ไปที่หน้าวิเคราะห์เพื่อสแกนสินค้า</p>
+            </div>
+          ) : (
+            [...scanHistory].reverse().map(scan => (
+              <div key={scan.id} className="bg-card rounded-3xl p-4 shadow-sm border border-border">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{scan.productName}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{scan.date}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+                        <Flame size={12} className="text-muted-foreground/70" />{scan.calories} kcal
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+                        <Candy size={12} className="text-muted-foreground/70" />น้ำตาล {scan.sugar}g
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+                        <Droplets size={12} className="text-muted-foreground/70" />โซเดียม {scan.sodium}mg
+                      </span>
+                    </div>
+                  </div>
+                  <div className={`shrink-0 w-11 h-11 rounded-2xl border flex flex-col items-center justify-center ${scoreChip(scan.score)}`}>
+                    <span className="text-base font-black leading-none tabular-nums">{scan.score}</span>
+                    <span className="text-[9px] leading-none mt-0.5">คะแนน</span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── Library Tab (Shared Menu Catalog — everyone's saved/AI-estimated foods) ── */}
+      {subTab === 'library' && (
+        <div className="mt-2 space-y-3">
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+            {LIB_CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setLibCategory(cat)}
+                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  libCategory === cat
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-card text-muted-foreground border-border hover:bg-muted'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {popularMenus === null ? (
+            <div className="flex items-center justify-center py-12">
+              <LoadingFruits label="กำลังโหลดคลังเมนู..." size="sm" />
+            </div>
+          ) : filteredMenus.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center bg-card rounded-3xl border border-border">
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <UtensilsCrossed size={24} className="text-muted-foreground" />
+              </div>
+              <p className="text-sm font-semibold text-foreground">ยังไม่มีเมนูในหมวดนี้</p>
+              <p className="text-xs text-muted-foreground mt-1">เมนูที่ทุกคนบันทึกหรือให้ AI ประมาณจะมาโชว์ที่นี่</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 pb-8">
+              {filteredMenus.map(menu => {
+                const MenuIcon = menu.icon
+                const catStyle = LIB_CATEGORY_STYLE[menu.category] ?? { bg: 'bg-muted', text: 'text-muted-foreground' }
+                return (
+                  <div key={menu.id} className="bg-card rounded-2xl p-4 shadow-sm border border-border flex flex-col group hover:shadow-md transition-all">
+                    <div className="flex items-start gap-3 mb-2">
+                      <div className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center ${catStyle.bg}`}>
+                        <MenuIcon size={18} className={catStyle.text} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{menu.name}</p>
+                        <span className="inline-block text-[10px] text-muted-foreground bg-muted rounded-full px-2 py-0.5 mt-1">{menu.category}</span>
+                      </div>
+                      <p className="text-sm font-bold text-primary tabular-nums shrink-0">{menu.cal}<span className="text-[10px] font-normal text-muted-foreground"> kcal</span></p>
+                    </div>
+                    <p className="text-xs text-muted-foreground tabular-nums mb-3">
+                      โปรตีน {menu.protein}g · คาร์บ {menu.carbs}g · ไขมัน {menu.fat}g
+                    </p>
+                    <button
+                      onClick={() => setPickingMealFor(menu)}
+                      className="w-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground rounded-xl py-2 text-xs font-semibold flex items-center justify-center gap-1 transition-colors mt-auto">
+                      <Plus size={14} /> เพิ่มเลย
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Meal-type picker (shown when adding from the shared catalog) ── */}
+      {pickingMealFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setPickingMealFor(null)}>
+          <div className="bg-card rounded-3xl p-5 shadow-lg border border-border w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-semibold text-foreground truncate">{pickingMealFor.name}</h3>
+              <button onClick={() => setPickingMealFor(null)}><X size={18} className="text-muted-foreground" /></button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">เลือกมื้อที่จะเพิ่มเมนูนี้เข้าไป</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.keys(MEAL_LABELS) as MealType[]).map(type => {
+                const MealIcon = MEAL_ICONS[type]
+                return (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      addFoodEntry({
+                        name: pickingMealFor.name,
+                        mealType: type,
+                        calories: pickingMealFor.cal,
+                        protein: pickingMealFor.protein,
+                        carbs: pickingMealFor.carbs,
+                        fat: pickingMealFor.fat,
+                      })
+                      setPickingMealFor(null)
+                      setSubTab('diary')
+                    }}
+                    className="flex items-center gap-2 px-3 py-3 rounded-xl border border-border hover:border-primary hover:bg-primary/5 transition-colors"
+                  >
+                    <MealIcon size={16} className="text-primary shrink-0" />
+                    <span className="text-sm font-medium text-foreground">{MEAL_LABELS[type]}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

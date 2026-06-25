@@ -1,5 +1,14 @@
 {
   "name": "NutriSmart Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  
+  // 🟢 บรรทัดที่เพิ่มเข้ามา: สั่งให้ติดตั้ง Python พ่วงเข้าไปในตู้ Node.js ใบนี้ด้วย
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    }
+  },
+
   "portsAttributes": {
     "3000": {
       "label": "Frontend",
@@ -11,5 +20,6 @@
       "onAutoForward": "openBrowser",
       "visibility": "public"
     }
-  }
+  },
+  "forwardPorts": [3000, 8000]
 }

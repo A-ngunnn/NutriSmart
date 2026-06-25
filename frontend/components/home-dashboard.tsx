@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Activity, Zap, ScanLine, Search, MessageCircle, ArrowRight, Droplet, Plus, Flame, ChevronRight, BookOpen } from "lucide-react"
+import { Plus, Minus, Apple, Droplets, Flame, Activity, Search, ArrowRight, Sunrise, Sun, Moon, Cookie, CheckCircle2, Circle, Flame as FireIcon, type LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAppStore, calcBMI, calcTDEE } from "@/lib/store"
 import Link from "next/link"
@@ -11,250 +11,387 @@ interface HomeDashboardProps {
   summary?: DashboardSummary | null
 }
 
-function getGreeting(name: string): { text: string; sub: string } {
+// ── การ์ดทักทายแบบ Dynamic เปลี่ยนไอคอน/สีตามช่วงเวลา — ใช้การ์ดขาว + ไอคอนวงกลมสี
+// ให้เข้ากับสไตล์ของการ์ดอื่นๆ ในแดชบอร์ด (ของเดิมเป็นบล็อกไล่เฉดสีเต็มการ์ด ดูคนละแนวกับที่เหลือ)
+function getGreeting(): { text: string; icon: LucideIcon; iconBg: string; iconColor: string } {
   const h = new Date().getHours()
-  if (h < 12) return { text: `อรุณสวัสดิ์ คุณ${name} 🌅`, sub: "มาเริ่มวันใหม่ด้วยมื้อเช้าที่ดีต่อสุขภาพกันเถอะ!" }
-  if (h < 17) return { text: `สวัสดีตอนบ่าย คุณ${name} ☀️`, sub: "อย่าลืมดื่มน้ำเพียงพอในช่วงกลางวันนะครับ" }
-  return { text: `สวัสดีตอนเย็น คุณ${name} 🌙`, sub: "มาสรุปผลโภชนาการของวันนี้กันเถอะ!" }
-}
 
+  if (h >= 5 && h < 12) {
+    return { text: "สวัสดีตอนเช้า", icon: Sunrise, iconBg: "bg-amber-50", iconColor: "text-amber-500" }
+  }
+  if (h >= 12 && h < 17) {
+    return { text: "สวัสดีตอนบ่าย", icon: Sun, iconBg: "bg-sky-50", iconColor: "text-sky-500" }
+  }
+  return { text: "สวัสดียามค่ำคืน", icon: Moon, iconBg: "bg-indigo-50", iconColor: "text-indigo-500" }
+}
 const MEAL_CONFIG = [
-  { key: "breakfast", label: "มื้อเช้า",    emoji: "🌅", color: "bg-amber-50 text-amber-600 border-amber-200"  },
-  { key: "lunch",     label: "มื้อกลางวัน", emoji: "☀️", color: "bg-green-50 text-green-600 border-green-200"  },
-  { key: "dinner",    label: "มื้อเย็น",    emoji: "🌙", color: "bg-blue-50 text-blue-600 border-blue-200"    },
-  { key: "snack",     label: "ของว่าง",    emoji: "🍿", color: "bg-orange-50 text-orange-600 border-orange-200" },
+  { key: "breakfast", label: "มื้อเช้า",     icon: <Sunrise className="w-4 h-4" />, bg: "bg-amber-50",  text: "text-amber-600",  border: "border-amber-100/50" },
+  { key: "lunch",     label: "มื้อกลางวัน", icon: <Sun className="w-4 h-4" />,     bg: "bg-green-50",  text: "text-green-600",  border: "border-green-100/50" },
+  { key: "dinner",    label: "มื้อเย็น",    icon: <Moon className="w-4 h-4" />,     bg: "bg-blue-50",   text: "text-blue-600",   border: "border-blue-100/50" },
+  { key: "snack",     label: "ของว่าง",     icon: <Cookie className="w-4 h-4" />,  bg: "bg-orange-50", text: "text-orange-600", border: "border-orange-100/50" },
 ]
 
-// SVG ring progress
-function CalorieRing({ current, target }: { current: number; target: number }) {
-  const r = 52
-  const circ = 2 * Math.PI * r
-  const pct = target > 0 ? Math.min(current / target, 1) : 0
-  const dash = pct * circ
-  const over = current > target
-
-  return (
-    <div className="relative w-[140px] h-[140px] flex-shrink-0">
-      <svg width="140" height="140" viewBox="0 0 140 140">
-        {/* Track */}
-        <circle cx="70" cy="70" r={r} fill="none" stroke="#f0f0f0" strokeWidth="12" />
-        {/* Progress */}
-        <circle
-          cx="70" cy="70" r={r} fill="none"
-          stroke={over ? "var(--color-destructive)" : "var(--color-primary)"}
-          strokeWidth="12"
-          strokeLinecap="round"
-          strokeDasharray={`${dash} ${circ}`}
-          strokeDashoffset={circ / 4}
-          transform="rotate(0 70 70)"
-          style={{ transition: "stroke-dasharray 0.6s ease" }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-2xl font-extrabold leading-none ${over ? "text-destructive" : "text-foreground"}`}>
-          {current.toLocaleString()}
-        </span>
-        <span className="text-[11px] text-muted-foreground mt-0.5">/ {target.toLocaleString()}</span>
-        <span className="text-[10px] text-muted-foreground">kcal</span>
-      </div>
-    </div>
-  )
-}
-
 export default function HomeDashboard({ summary }: HomeDashboardProps) {
-  const { userName, profile, foodEntries, waterEntries, scanHistory, addWaterEntry } = useAppStore()
+  const { userName, profile, foodEntries, waterEntries, addWaterEntry, removeWaterEntry } = useAppStore()
 
-  const profileData = summary?.profile ?? profile
-  const displayName = summary?.profile?.name || userName || "คุณ"
-  const todayKey = new Date().toISOString().slice(0, 10)
+  const todayKey = useMemo(() => {
+    const d = new Date()
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }, [])
 
   const todayEntries = useMemo(
-    () => summary ? [] : foodEntries.filter(e => e.date === todayKey),
-    [foodEntries, todayKey, summary]
+    () => foodEntries.filter(e => e.date === todayKey),
+    [foodEntries, todayKey]
   )
-  const waterToday = summary?.water_today ?? useMemo(
+
+  const waterTodayLocal = useMemo(
     () => waterEntries.filter(e => e.date === todayKey).reduce((s, e) => s + e.amount, 0),
     [waterEntries, todayKey]
   )
 
-  const bmi = summary ? profileData.weight && profileData.height ? calcBMI(parseFloat(profileData.weight), parseFloat(profileData.height)) : 0 : calcBMI(parseFloat(profile.weight), parseFloat(profile.height))
-  const tdee = summary?.tdee ?? calcTDEE(
-    parseFloat(profile.weight), parseFloat(profile.height),
-    parseFloat(profile.age), profile.gender, profile.activityLevel, profile.goal
+  // รายการน้ำล่าสุดของวันนี้ — ใช้สำหรับปุ่ม "ลบรายการล่าสุด" เผื่อกดผิด
+  const lastWaterEntryToday = useMemo(
+    () => waterEntries.find(e => e.date === todayKey) ?? null,
+    [waterEntries, todayKey]
   )
-  const waterTarget = summary?.water_target ?? Math.round((parseFloat(profile.weight) || 60) * 33)
-  const caloriesToday = summary?.calories_today ?? todayEntries.reduce((s, e) => s + e.calories, 0)
 
-  const greeting = getGreeting(displayName)
+  // จำนวนวันที่บันทึกอาหารต่อเนื่องจนถึงวันนี้ (streak)
+  const loggingStreak = useMemo(() => {
+    const loggedDates = new Set(foodEntries.map(e => e.date))
+    let streak = 0
+    const cursor = new Date()
+    while (true) {
+      const y = cursor.getFullYear()
+      const m = String(cursor.getMonth() + 1).padStart(2, '0')
+      const d = String(cursor.getDate()).padStart(2, '0')
+      if (!loggedDates.has(`${y}-${m}-${d}`)) break
+      streak++
+      cursor.setDate(cursor.getDate() - 1)
+    }
+    return streak
+  }, [foodEntries])
 
-  const bmiColor = bmi === 0 ? "text-muted-foreground" : bmi < 25 ? "text-primary" : "text-destructive"
-  const bmiLabel = bmi === 0 ? "ยังไม่มีข้อมูล" : bmi < 18.5 ? "น้ำหนักน้อย" : bmi < 25 ? "สมส่วนดี" : bmi < 30 ? "น้ำหนักเกิน" : "อ้วน"
+  const activeProfile = summary?.profile || profile
+  const displayName = summary?.profile?.name || userName || "เพื่อน"
+  const waterToday = waterTodayLocal
+  const caloriesToday = todayEntries.reduce((s, e) => s + e.calories, 0)
+  
+  const weightNum = parseFloat(activeProfile.weight) || 0
+  const heightNum = parseFloat(activeProfile.height) || 0
+  const ageNum = parseFloat(activeProfile.age) || 0
 
-  const mealsToday = summary?.meal_totals ?? useMemo(() => {
-    const map: Record<string, number> = {}
-    todayEntries.forEach(e => { map[e.mealType] = (map[e.mealType] || 0) + e.calories })
+  const tdee = summary?.tdee ?? calcTDEE(
+    weightNum, heightNum, ageNum,
+    activeProfile.gender, activeProfile.activityLevel, activeProfile.goal
+  )
+  const waterTarget = summary?.water_target ?? Math.round((weightNum || 60) * 33)
+
+  const greeting = getGreeting()
+  const GreetingIcon = greeting.icon
+  const formattedDate = new Date().toLocaleDateString("th-TH", { weekday: "short", day: "numeric", month: "short" })
+
+  const calorieGoal = tdee > 0 ? tdee : 2000
+  const caloriePercent = Math.round((caloriesToday / calorieGoal) * 100)
+  const circumference = 2 * Math.PI * 54
+  const offset = circumference - (Math.min(caloriePercent, 100) / 100) * circumference
+
+  const macrosToday = useMemo(() => {
+    let protein = 0, carbs = 0, fat = 0
+    todayEntries.forEach(e => {
+      protein += e.protein || 0
+      carbs += e.carbs || 0
+      fat += e.fat || 0
+    })
+    return { protein, carbs, fat }
+  }, [todayEntries])
+
+  const macroGoals = {
+    protein: Math.round((calorieGoal * 0.25) / 4),
+    carbs: Math.round((calorieGoal * 0.50) / 4),
+    fat: Math.round((calorieGoal * 0.25) / 9),
+  }
+
+  const todayChecklist = [
+    { label: 'บันทึกอาหารแล้ว', done: todayEntries.length > 0 },
+    { label: 'ดื่มน้ำครบเป้าหมาย', done: waterTarget > 0 && waterToday >= waterTarget },
+    { label: 'แคลอรีอยู่ในเป้าหมาย', done: caloriesToday > 0 && caloriesToday <= calorieGoal },
+  ]
+
+  const entriesByMeal = useMemo(() => {
+    const map: Record<string, typeof todayEntries> = { breakfast: [], lunch: [], dinner: [], snack: [] }
+    todayEntries.forEach(e => {
+      if (map[e.mealType]) map[e.mealType].push(e)
+    })
     return map
   }, [todayEntries])
 
   return (
-    <div className="p-4 space-y-4 pb-24 max-w-2xl mx-auto">
+    <div className="p-4 space-y-4 lg:space-y-6 pb-24 max-w-2xl lg:max-w-6xl mx-auto">
 
-      {/* ── Welcome Banner ── */}
-      <div className="rounded-2xl bg-primary px-5 py-5 text-white">
-        <p className="text-xs text-white/60 mb-1">
-          {new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-        </p>
-        <h2 className="text-xl font-extrabold mb-1">{greeting.text}</h2>
-        <p className="text-white/75 text-xs leading-relaxed">{greeting.sub}</p>
-      </div>
-
-      {/* ── Calorie Ring + Quick Stats ── */}
-      <div className="bg-white rounded-2xl border border-border p-4">
-        <p className="font-bold text-sm text-foreground mb-3 flex items-center gap-2">
-          <Flame className="w-4 h-4 text-secondary" />
-          พลังงานวันนี้
-        </p>
-        <div className="flex items-center gap-5">
-          <CalorieRing current={caloriesToday} target={tdee} />
-          <div className="flex-1 space-y-3">
-            <div>
-              <p className="text-[11px] text-muted-foreground">เป้าหมาย TDEE</p>
-              <p className="font-extrabold text-lg text-foreground">{tdee > 0 ? `${tdee.toLocaleString()} kcal` : "—"}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground">เหลือได้อีก</p>
-              <p className={`font-extrabold text-lg ${caloriesToday > tdee ? "text-destructive" : "text-primary"}`}>
-                {tdee > 0 ? `${Math.abs(tdee - caloriesToday).toLocaleString()} kcal` : "—"}
-              </p>
-              {caloriesToday > tdee && <p className="text-[10px] text-destructive">⚠️ เกินเป้าหมายแล้ว</p>}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="text-center bg-muted/40 rounded-lg py-1.5">
-                <p className="text-[10px] text-muted-foreground">BMI</p>
-                <p className={`text-sm font-bold ${bmiColor}`}>{bmi > 0 ? bmi.toFixed(1) : "—"}</p>
-                <p className={`text-[9px] font-semibold ${bmiColor}`}>{bmiLabel}</p>
-              </div>
-              <div className="text-center bg-muted/40 rounded-lg py-1.5">
-                <p className="text-[10px] text-muted-foreground">สแกนแล้ว</p>
-                <p className="text-sm font-bold text-foreground">{scanHistory.length}</p>
-                <p className="text-[9px] text-muted-foreground">รายการ</p>
-              </div>
-            </div>
+      {/* ── การ์ดหัวข้อต้อนรับ — เปลี่ยนจากบล็อกไล่เฉดสีเต็มการ์ดเป็นการ์ดขาว + ไอคอนวงกลมสี
+          ให้เข้าสไตล์เดียวกับการ์ดอื่นๆ ในแดชบอร์ด (calorie ring, macro cards, water tracking ฯลฯ) ── */}
+      <div className="p-5 rounded-3xl bg-card border border-border shadow-sm flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className={`w-12 h-12 rounded-2xl ${greeting.iconBg} flex items-center justify-center shrink-0`}>
+            <GreetingIcon className={`w-6 h-6 ${greeting.iconColor}`} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              NutriSmart Dashboard
+            </p>
+            <h1 className="text-lg font-bold text-foreground truncate">
+              {greeting.text}, <span className="text-primary">คุณ{displayName}</span>
+            </h1>
+            <p className="text-xs text-muted-foreground font-medium">
+              วันนี้พร้อมสำหรับเป้าหมายสุขภาพของคุณแล้วหรือยัง? ลุยกันเลย!
+            </p>
           </div>
         </div>
       </div>
 
-      {/* ── Meals Today ── */}
-      <div className="bg-white rounded-2xl border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-primary" />
-            <p className="font-bold text-sm text-foreground">มื้ออาหารวันนี้</p>
-          </div>
-          <Link href="/logs" className="text-xs text-primary font-semibold flex items-center gap-0.5 hover:underline">
-            ดูทั้งหมด <ChevronRight className="w-3 h-3" />
-          </Link>
-        </div>
-        <div className="divide-y divide-border/50">
-          {MEAL_CONFIG.map(m => {
-            const cal = mealsToday[m.key]
-            return (
-              <div key={m.key} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-base">{m.emoji}</span>
-                  <span className="text-sm font-medium text-foreground">{m.label}</span>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 lg:gap-6">
+        <div className="xl:col-span-2 space-y-4 lg:space-y-6">
+
+          {/* ── Calorie Ring Card ── */}
+          <div className="bg-card rounded-3xl p-5 shadow-sm border border-border">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-foreground flex items-center gap-1.5">
+                <Flame className="w-4 h-4 text-primary" /> เป้าหมายแคลอรีวันนี้
+              </h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">{formattedDate}</span>
+            </div>
+
+            <div className="flex items-center gap-6">
+              <div className="relative shrink-0">
+                <svg width="128" height="128" className="-rotate-90">
+                  <circle cx="64" cy="64" r="54" stroke="#e4f0e5" strokeWidth="12" fill="none" />
+                  <circle
+                    cx="64" cy="64" r="54"
+                    stroke={caloriesToday > calorieGoal ? "var(--color-destructive)" : "#41a347"}
+                    strokeWidth="12"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={offset}
+                    style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className={`text-2xl font-bold ${caloriesToday > calorieGoal ? "text-destructive" : "text-foreground"}`}>
+                    {caloriePercent}%
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">ของเป้าหมาย</span>
                 </div>
-                {cal ? (
-                  <span className="text-sm font-bold text-foreground">{cal} <span className="text-[11px] font-normal text-muted-foreground">kcal</span></span>
-                ) : (
-                  <Link href="/logs">
-                    <span className="text-xs text-muted-foreground border border-dashed border-border rounded-lg px-2 py-1 hover:border-primary hover:text-primary transition-colors cursor-pointer">+ เพิ่ม</span>
-                  </Link>
-                )}
               </div>
-            )
-          })}
-        </div>
-      </div>
 
-      {/* ── Water Tracking ── */}
-      <div className="bg-white rounded-2xl border border-border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-              <Droplet className="w-4 h-4 text-blue-500" />
+              <div className="flex-1 space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">รับประทานแล้ว</p>
+                  <p className={`text-2xl font-bold ${caloriesToday > calorieGoal ? "text-destructive" : "text-primary"}`}>
+                    {caloriesToday.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-muted-foreground">จาก {calorieGoal.toLocaleString()} kcal</p>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-700 ${caloriesToday > calorieGoal ? "bg-destructive" : "bg-primary"}`}
+                    style={{ width: `${Math.min(caloriePercent, 100)}%` }}
+                  />
+                </div>
+                <p className={`text-xs font-medium ${caloriesToday > calorieGoal ? "text-destructive" : "text-green-600"}`}>
+                  {caloriesToday > calorieGoal 
+                    ? `⚠️ เกินเป้าหมายมา ${Math.abs(calorieGoal - caloriesToday).toLocaleString()} kcal`
+                    : `เหลืออีก ${(calorieGoal - caloriesToday).toLocaleString()} kcal`
+                  }
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-sm text-foreground">น้ำดื่มวันนี้</p>
-              <p className="text-[11px] text-muted-foreground">เป้า {waterTarget.toLocaleString()} ml</p>
+          </div>
+
+          {/* ── Macro Mini Cards ── */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[
+              { label: 'โปรตีน', value: Math.round(macrosToday.protein), target: macroGoals.protein, unit: 'g', icon: <Activity size={14} />, color: 'text-blue-500', bg: 'bg-blue-50' },
+              { label: 'คาร์บ', value: Math.round(macrosToday.carbs), target: macroGoals.carbs, unit: 'g', icon: <Apple size={14} />, color: 'text-orange-500', bg: 'bg-orange-50' },
+              { label: 'ไขมัน', value: Math.round(macrosToday.fat), target: macroGoals.fat, unit: 'g', icon: <Droplets size={14} />, color: 'text-red-500', bg: 'bg-red-50' },
+            ].map((m) => {
+              const pct = m.target > 0 ? Math.min((m.value / m.target) * 100, 100) : 0
+              return (
+                <div key={m.label} className="bg-card rounded-2xl p-2 sm:p-3 shadow-sm border border-border flex flex-col items-center sm:items-start text-center sm:text-left">
+                  <div className={`w-7 h-7 rounded-xl ${m.bg} flex items-center justify-center mb-2 ${m.color}`}>
+                    {m.icon}
+                  </div>
+                  <p className="text-sm sm:text-base font-bold text-foreground">
+                    {m.value}
+                    <span className="text-[9px] sm:text-[10px] font-normal text-muted-foreground ml-0.5">/{m.target}{m.unit}</span>
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground font-medium">{m.label}</p>
+                  <div className="mt-2 w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                    <div className={`h-1.5 rounded-full ${m.color.replace('text', 'bg')}`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* ── มื้ออาหารวันนี้ ── */}
+          <div className="bg-card rounded-3xl p-4 shadow-sm border border-border">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-sm text-foreground">มื้ออาหารวันนี้</h2>
+              <Link href="/logs" className="text-xs text-primary font-medium hover:underline">ดูประวัติ</Link>
+            </div>
+            
+            <div className="divide-y divide-border/40">
+              {MEAL_CONFIG.map((meal) => {
+                const meals = entriesByMeal[meal.key] || []
+                const hasMeals = meals.length > 0
+
+                return (
+                  <div key={meal.key} className="py-2.5 first:pt-0 last:pb-0">
+                    {hasMeals ? (
+                      <div className="space-y-1.5">
+                        {meals.map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className={`w-7 h-7 rounded-xl ${meal.bg} ${meal.text} border ${meal.border} flex items-center justify-center shrink-0`}>
+                                {meal.icon}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-foreground">{item.name}</p>
+                                <p className="text-[11px] text-muted-foreground">{meal.label}</p>
+                              </div>
+                            </div>
+                            <p className="text-sm font-semibold text-primary">{item.calories} kcal</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-xl bg-muted text-muted-foreground/70 flex items-center justify-center shrink-0">
+                            {meal.icon}
+                          </div>
+                          <span className="text-sm font-medium text-muted-foreground">{meal.label}</span>
+                        </div>
+                        <Link href={`/logs?action=add&type=${meal.key}`}>
+                          <button className="h-7 px-3 text-xs font-medium border border-border hover:border-primary/40 hover:text-primary rounded-xl transition-all flex items-center gap-1 active:scale-95 bg-white text-muted-foreground shadow-sm">
+                            <Plus size={12} /> เพิ่มอาหาร
+                          </button>
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
-          <div className="text-right">
-            <span className="text-xl font-extrabold text-blue-500">{waterToday.toLocaleString()}</span>
-            <span className="text-xs text-muted-foreground ml-1">ml</span>
-          </div>
-        </div>
 
-        {/* Progress bar */}
-        <div className="w-full bg-blue-50 rounded-full h-2 overflow-hidden">
-          <div
-            className="bg-blue-500 h-2 rounded-full transition-all duration-500"
-            style={{ width: `${Math.min((waterToday / waterTarget) * 100, 100)}%` }}
-          />
-        </div>
+        </div>{/* end left column */}
 
-        {/* Water buttons */}
-        <div className="grid grid-cols-3 gap-2">
-          {[150, 250, 500].map(ml => (
-            <button
-              key={ml}
-              onClick={() => addWaterEntry(ml)}
-              className="h-10 rounded-xl border border-blue-200 text-blue-600 text-xs font-semibold hover:bg-blue-50 active:scale-95 transition-all flex items-center justify-center gap-1"
-            >
-              <Plus className="w-3 h-3" /> {ml}ml
-            </button>
-          ))}
-        </div>
-      </div>
+        {/* ── Right rail ── */}
+        <div className="space-y-4 lg:space-y-6">
 
-      {/* ── Quick Actions ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <Link href="/analyzer" className="bg-white rounded-2xl border border-border p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Search className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <p className="font-bold text-sm text-foreground">วิเคราะห์ฉลาก</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">สแกนและตรวจสอบโภชนาการทันที</p>
-          </div>
-          <span className="text-xs text-primary font-semibold flex items-center gap-1">เริ่มสแกน <ArrowRight className="w-3 h-3" /></span>
-        </Link>
+          {/* ── Water Tracking ── */}
+          <div className="bg-card rounded-3xl p-4 shadow-sm border border-border space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center border border-blue-100">
+                  <Droplets size={18} className="text-blue-500" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-sm text-foreground">ปริมาณน้ำดื่มวันนี้</h2>
+                  <p className="text-xs text-muted-foreground">เป้าหมาย {waterTarget.toLocaleString()} ml</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => lastWaterEntryToday && removeWaterEntry(lastWaterEntryToday.id)}
+                  disabled={!lastWaterEntryToday}
+                  title="ลบรายการน้ำล่าสุด (เผื่อกดผิด)"
+                  className="w-7 h-7 rounded-full border border-blue-100 bg-white hover:bg-blue-50 text-blue-500 flex items-center justify-center disabled:opacity-30 disabled:hover:bg-white transition-colors shrink-0"
+                >
+                  <Minus size={13} />
+                </button>
+                <div className="text-right">
+                  <span className="text-xl font-bold text-blue-500">{waterToday.toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground ml-1">ml</span>
+                </div>
+              </div>
+            </div>
 
-        <Link href="/health" className="bg-white rounded-2xl border border-border p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
-          <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-            <Activity className="w-5 h-5 text-secondary" />
-          </div>
-          <div>
-            <p className="font-bold text-sm text-foreground">ภาพรวมสุขภาพ</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">กราฟ 7 วันและประวัติทั้งหมด</p>
-          </div>
-          <span className="text-xs text-secondary font-semibold flex items-center gap-1">ดูกราฟ <ArrowRight className="w-3 h-3" /></span>
-        </Link>
-      </div>
+            <div className="w-full bg-blue-50/50 rounded-full h-2 overflow-hidden border border-blue-100/30">
+              <div className="bg-blue-500 h-2 rounded-full transition-all duration-500" style={{ width: `${Math.min((waterToday / waterTarget) * 100, 100)}%` }} />
+            </div>
 
-      {/* Prompt to fill profile if empty */}
-      {!profile.weight && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
-          <span className="text-xl">⚠️</span>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm text-amber-800">กรุณากรอกข้อมูลโปรไฟล์</p>
-            <p className="text-xs text-amber-700">เพื่อให้ระบบคำนวณ BMI และ TDEE ส่วนตัว</p>
+            <div className="grid grid-cols-3 gap-2 pt-0.5">
+              {[150, 250, 500].map(ml => (
+                <button
+                  key={ml}
+                  onClick={() => addWaterEntry(ml)}
+                  className="h-9 rounded-xl border border-blue-100 bg-white hover:bg-blue-50 text-blue-600 text-xs font-semibold active:scale-95 transition-all flex items-center justify-center gap-1 shadow-sm"
+                >
+                  <Plus size={12} /> {ml}ml
+                </button>
+              ))}
+            </div>
           </div>
-          <Link href="/profile">
-            <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white flex-shrink-0 h-9 px-3 text-xs">กรอก</Button>
-          </Link>
-        </div>
-      )}
+
+          {/* ── เป้าหมายวันนี้ + Streak ── */}
+          <div className="bg-card rounded-3xl p-4 shadow-sm border border-border space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm text-foreground">เป้าหมายวันนี้</h2>
+              {loggingStreak > 0 && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-orange-600 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full">
+                  <FireIcon size={11} /> ต่อเนื่อง {loggingStreak} วัน
+                </span>
+              )}
+            </div>
+            <div className="space-y-2">
+              {todayChecklist.map(item => (
+                <div key={item.label} className="flex items-center gap-2">
+                  {item.done ? (
+                    <CheckCircle2 size={16} className="text-primary shrink-0" />
+                  ) : (
+                    <Circle size={16} className="text-muted-foreground/40 shrink-0" />
+                  )}
+                  <span className={`text-xs ${item.done ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── การ์ดทางลัด ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+            <Link href="/analyzer" className="bg-card rounded-3xl border border-border p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
+                <Search className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-foreground">วิเคราะห์ฉลาก</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">สแกนและตรวจสอบโภชนาการทันที</p>
+              </div>
+              <span className="text-xs text-primary font-semibold flex items-center gap-1 mt-auto">เริ่มสแกน <ArrowRight className="w-3 h-3" /></span>
+            </Link>
+
+            <Link href="/health" className="bg-card rounded-3xl border border-border p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+              <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center border border-secondary/20">
+                <Activity className="w-5 h-5 text-secondary" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-foreground">ภาพรวมสุขภาพ</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">กราฟ 7 วันและประวัติทั้งหมด</p>
+              </div>
+              <span className="text-xs text-secondary font-semibold flex items-center gap-1 mt-auto">ดูกราฟ <ArrowRight className="w-3 h-3" /></span>
+            </Link>
+          </div>
+
+        </div>{/* end right rail */}
+
+      </div>{/* end grid */}
+
     </div>
   )
 }

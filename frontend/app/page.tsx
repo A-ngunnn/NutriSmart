@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import LandingPage from "@/components/landing-page"
 import AuthPages from "@/components/auth-pages"
 import { useAppStore } from "@/lib/store"
 import { createClient } from "@/lib/supabase/client"
+import LoadingScreen from "@/components/ui/loading-screen"
 
 type View = "landing" | "login" | "register"
 
@@ -14,29 +15,20 @@ export default function Page() {
   const { fetchUserData } = useAppStore()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  // กัน fetchUserData ยิงซ้ำสำหรับ user คนเดิม — onAuthStateChange ยิง INITIAL_SESSION ทันที
+  // ตอน subscribe (เทียบเท่าการเช็ก session ตอน mount) จึงไม่ต้องเรียก getSession() แยกซ้ำซ้อน
+  const lastFetchedUserId = useRef<string | undefined>(undefined)
 
   useEffect(() => {
     const supabase = createClient()
 
-    const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user?.id) {
-        try {
-          await fetchUserData(session.user.id)
-          router.push("/dashboard")
-          return
-        } catch (error) {
-          console.error("Failed to load user data on init:", error)
-        }
-      }
-
-      setLoading(false)
-    }
-
-    initAuth()
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user?.id) {
+        if (lastFetchedUserId.current === session.user.id) {
+          router.push("/dashboard")
+          return
+        }
+        lastFetchedUserId.current = session.user.id
         try {
           await fetchUserData(session.user.id)
           router.push("/dashboard")
@@ -58,6 +50,7 @@ export default function Page() {
     const supabase = createClient()
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
+      lastFetchedUserId.current = session.user.id
       await fetchUserData(session.user.id)
     }
     router.push("/dashboard")
@@ -65,10 +58,7 @@ export default function Page() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
-        <div className="w-10 h-10 rounded-full border-4 border-primary border-t-transparent animate-spin mb-4" />
-        <p className="text-sm text-muted-foreground font-medium">กำลังเตรียมความพร้อม...</p>
-      </div>
+      <LoadingScreen />
     )
   }
 

@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Camera, ScanLine, AlertTriangle, CheckCircle, XCircle, Info, X, SwitchCamera, Upload, Loader2 } from "lucide-react"
+import { Camera, ScanLine, AlertTriangle, CheckCircle, XCircle, Info, X, SwitchCamera, Upload, ImagePlus, PencilLine, Sparkles as SparklesIcon, History, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { analyzeImageWithBackend, analyzeManualWithBackend } from "@/lib/backend-api"
 import { createClient } from "@/lib/supabase/client"
+import AnalyzingSpinner from "@/components/ui/analyzing-spinner"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NutritionData {
@@ -145,7 +146,7 @@ function CameraScanner({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+    <div className="fixed inset-0 z-100 bg-black flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
         <button onClick={onClose} className="text-white p-2 -m-2">
@@ -203,7 +204,7 @@ function CameraScanner({
 
                 {/* Scan line animation */}
                 <div
-                  className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent animate-pulse"
+                  className="absolute left-4 right-4 h-0.5 bg-linear-to-r from-transparent via-primary to-transparent animate-pulse"
                   style={{ top: "50%", opacity: 0.8 }}
                 />
               </div>
@@ -258,17 +259,16 @@ function CapturedPreview({
 }) {
   return (
     <div className="space-y-3">
-      {/* Image preview */}
-      <div className="relative rounded-xl overflow-hidden border border-border">
-        <img src={imageUrl} alt="ฉลากที่ถ่าย" className="w-full h-auto max-h-48 object-cover" />
-        {scanning && (
-          <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 text-white animate-spin" />
-            <p className="text-white text-sm font-medium">กำลังอ่านข้อมูลจากภาพ...</p>
-            <p className="text-white/60 text-xs">AI กำลังวิเคราะห์ฉลากโภชนาการ</p>
-          </div>
-        )}
-      </div>
+      {/* Image preview — สลับเป็นแผงสปินเนอร์เต็มพื้นที่ตอนกำลังวิเคราะห์ (รูปเดิมเล็กเกินจะใส่สปินเนอร์ซ้อนได้สวย) */}
+      {scanning ? (
+        <div className="rounded-xl border border-border bg-white py-6 flex items-center justify-center">
+          <AnalyzingSpinner subtitle="AI กำลังวิเคราะห์ฉลากโภชนาการ" />
+        </div>
+      ) : (
+        <div className="relative rounded-xl overflow-hidden border border-border">
+          <img src={imageUrl} alt="ฉลากที่ถ่าย" className="w-full h-auto max-h-48 object-cover" />
+        </div>
+      )}
 
       {!scanning && (
         <div className="flex gap-2">
@@ -297,8 +297,14 @@ function CapturedPreview({
 import { useAppStore } from "@/lib/store"
 import { useRouter } from "next/navigation"
 
+const HOW_IT_WORKS = [
+  { icon: ImagePlus, title: "ถ่ายรูปหรือเลือกฉลาก", desc: "ถ่ายรูปอาหารหรือฉลากโภชนาการ หรือกรอกข้อมูลด้วยตัวเอง" },
+  { icon: SparklesIcon, title: "AI วิเคราะห์ให้ทันที", desc: "ระบบอ่านค่าพลังงาน น้ำตาล โซเดียม และประเมินคะแนนความปลอดภัย" },
+  { icon: PencilLine, title: "ดูผลและบันทึกลงไดอารี่", desc: "ตรวจสอบคำเตือน/คำแนะนำ แล้วบันทึกผลลงประวัติได้ในคลิกเดียว" },
+]
+
 export default function AnalyzerPage() {
-  const { addScan } = useAppStore()
+  const { addScanLocal, scanHistory } = useAppStore()
   const router = useRouter()
   const [form, setForm] = useState<NutritionData>(EMPTY)
   const [result, setResult] = useState<AnalysisResult | null>(null)
@@ -307,17 +313,23 @@ export default function AnalyzerPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [hasSaved, setHasSaved] = useState(false)
+  // true เมื่อค่าในฟอร์มมาจากการสแกนรูป (ยังไม่ถูกแก้ไขมือ) — /api/analyze/image auto-save ไปแล้ว
+  // รอบหนึ่งแล้ว ตอนกดวิเคราะห์จะส่ง save=false ไปที่ /manual กันไม่ให้ insert ซ้ำเป็นสแกนที่สอง
+  const [cameFromOcr, setCameFromOcr] = useState(false)
 
-  const set = (k: keyof NutritionData, v: string) =>
+  const set = (k: keyof NutritionData, v: string) => {
+    setCameFromOcr(false)
     setForm((prev) => ({ ...prev, [k]: k === "productName" ? v : parseFloat(v) || 0 }))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    setHasSaved(false)
 
     try {
+      // ถ้าข้อมูลมาจากสแกนรูป (cameFromOcr) แปลว่า /api/analyze/image auto-save ไปแล้วรอบหนึ่ง
+      // ขั้นนี้ส่ง save=false กันไม่ให้บันทึกซ้ำเป็นสแกนที่สองของรูปเดียวกัน
+      const willSave = !cameFromOcr
       const data = await analyzeManualWithBackend({
         productName: form.productName,
         calories: form.calories,
@@ -326,8 +338,24 @@ export default function AnalyzerPage() {
         totalFat: form.totalFat,
         sugar: form.sugar,
         sodium: form.sodium,
+      }, willSave)
+      const mapped = mapBackendResult(data, form)
+      setResult(mapped)
+
+      // บันทึกไปแล้วโดย backend อัตโนมัติ (ทั้งสองกรณี — ที่นี่หรือที่ /image ไปก่อนแล้ว) — sync local
+      // state ทันทีให้ "ประวัติการสแกน" โชว์ผลให้เห็นเลย ไม่ต้องรอผู้ใช้กดปุ่ม "บันทึก" ซ้ำอีกขั้น
+      addScanLocal({
+        productName: form.productName || "ไม่ระบุชื่อ",
+        calories: form.calories,
+        protein: form.protein,
+        carbs: form.carbs,
+        totalFat: form.totalFat,
+        sugar: form.sugar,
+        sodium: form.sodium,
+        score: mapped.score,
+        status: mapped.score >= 80 ? "safe" : mapped.score >= 50 ? "moderate" : "danger",
       })
-      setResult(mapBackendResult(data, form))
+      setCameFromOcr(false)
     } catch (err) {
       console.error(err)
       alert("เกิดข้อผิดพลาดในการวิเคราะห์ กรุณาลองใหม่อีกครั้ง")
@@ -373,6 +401,9 @@ export default function AnalyzerPage() {
         sodium: data.sodium || 0,
       })
       // ⚠️ นำค่ามาใส่ในฟอร์มเท่านั้น เพื่อให้ผู้ใช้ตรวจสอบความถูกต้องก่อนกดปุ่มวิเคราะห์เอง
+      // /api/analyze/image auto-save สแกนนี้ไปแล้วในตัว — ตั้ง cameFromOcr ไว้กันไม่ให้ขั้นวิเคราะห์
+      // ถัดไปบันทึกซ้ำเป็นสแกนที่สองของรูปเดียวกัน (ถ้าผู้ใช้แก้ไขค่าเอง flag นี้จะถูกล้างใน set())
+      setCameFromOcr(true)
       setCapturedImage(null)
     } catch (err) {
       console.error(err)
@@ -405,12 +436,22 @@ export default function AnalyzerPage() {
         onChange={handleFileUpload}
       />
 
-      <div className="p-4">
+      <div className="p-4 space-y-4 lg:space-y-6 pb-24 max-w-2xl lg:max-w-6xl mx-auto">
+        <div className="pt-2 flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Search size={20} className="text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-foreground">วิเคราะห์อาหารและฉลาก</h1>
+            <p className="text-sm text-muted-foreground">AI สแกนและประเมินคุณค่าทางโภชนาการ</p>
+          </div>
+        </div>
+
         {/* Mobile: stacked. Desktop: side-by-side */}
-        <div className="flex flex-col md:flex-row gap-4 md:max-w-5xl md:mx-auto">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 lg:gap-6">
           {/* Form */}
-          <div className="w-full md:w-[420px] md:flex-shrink-0">
-            <div className="bg-white rounded-2xl border border-border p-4 space-y-4">
+          <div className="xl:col-span-1">
+            <div className="bg-card rounded-3xl shadow-sm border border-border p-4 space-y-4">
               <h2 className="font-bold text-base text-foreground">กรอกข้อมูลสารอาหารจากบรรจุภัณฑ์</h2>
 
               {/* Camera / Upload buttons */}
@@ -458,7 +499,7 @@ export default function AnalyzerPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {(
                     [
                       { key: "calories",  label: "พลังงาน (KCAL)" },
@@ -503,24 +544,40 @@ export default function AnalyzerPage() {
           </div>
 
           {/* Results — below form on mobile, right panel on desktop */}
-          <div className="flex-1">
-            <div className="bg-white rounded-2xl border border-border p-4 flex flex-col">
+          <div className="xl:col-span-2 space-y-4">
+            <div className="bg-card rounded-3xl shadow-sm border border-border p-4 flex flex-col">
               {!result ? (
-                /* Empty state — compact on mobile, centered on desktop */
-                <div className="flex flex-col items-center justify-center text-center gap-3 py-10 md:py-16">
-                  <div className="w-14 h-14 rounded-2xl border-2 border-dashed border-border flex items-center justify-center">
-                    <ScanLine className="w-7 h-7 text-muted-foreground/40" />
+                /* Empty state — replaced bare placeholder with a real "how it works" guide */
+                <div className="py-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-9 h-9 rounded-xl bg-green-50 text-primary flex items-center justify-center border border-green-100/50 shrink-0">
+                      <ScanLine className="w-4 h-4" />
+                    </div>
+                    <p className="font-semibold text-sm text-foreground">วิเคราะห์ผลิตภัณฑ์เพื่อสุขภาพที่ดียิ่งขึ้น</p>
                   </div>
-                  <p className="font-semibold text-sm text-foreground">วิเคราะห์ผลิตภัณฑ์เพื่อสุขภาพที่ดียิ่งขึ้น</p>
-                  <p className="text-xs text-muted-foreground max-w-xs leading-relaxed">
-                    ถ่ายรูปสแกนฉลากโภชนาการ หรือกรอกข้อมูลด้านบน เพื่อประเมินคะแนนความปลอดภัยได้ทันที
-                  </p>
+                  <p className="text-xs text-muted-foreground mb-4 ml-11">ผลคะแนนความปลอดภัย คำเตือน และคำแนะนำจะแสดงที่นี่</p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {HOW_IT_WORKS.map((step, i) => {
+                      const StepIcon = step.icon
+                      return (
+                        <div key={step.title} className="bg-muted/40 border border-border/60 rounded-2xl p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                            <StepIcon className="w-4 h-4 text-primary" />
+                          </div>
+                          <p className="text-xs font-semibold text-foreground mb-1">{step.title}</p>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">{step.desc}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-5">
                   {/* Score */}
                   <div className="flex items-center gap-4">
-                    <div className="w-20 h-20 rounded-2xl bg-muted flex flex-col items-center justify-center flex-shrink-0">
+                    <div className="w-20 h-20 rounded-2xl bg-muted flex flex-col items-center justify-center shrink-0">
                       <span className={`text-3xl font-extrabold ${scoreColor}`}>{result.score}</span>
                       <span className="text-[10px] text-muted-foreground font-medium">/100</span>
                     </div>
@@ -532,7 +589,7 @@ export default function AnalyzerPage() {
                   </div>
 
                   {/* Level indicators */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
                     {(
                       [
                         { label: "น้ำตาล", level: result.sugarLevel, val: `${form.sugar}g` },
@@ -543,11 +600,11 @@ export default function AnalyzerPage() {
                       const cfg = LEVEL_CONFIG[level]
                       const Icon = cfg.icon
                       return (
-                        <div key={label} className={cn("rounded-xl p-3 flex flex-col gap-1", cfg.bg)}>
+                        <div key={label} className={cn("rounded-xl p-2 sm:p-3 flex flex-col gap-1 text-center sm:text-left items-center sm:items-start", cfg.bg)}>
                           <Icon className={cn("w-4 h-4", cfg.color)} />
-                          <p className="text-xs font-semibold text-foreground">{label}</p>
-                          <p className="text-sm font-bold text-foreground">{val}</p>
-                          <p className={cn("text-[10px] font-semibold", cfg.color)}>{cfg.label}</p>
+                          <p className="text-[10px] sm:text-xs font-semibold text-foreground">{label}</p>
+                          <p className="text-xs sm:text-sm font-bold text-foreground">{val}</p>
+                          <p className={cn("text-[9px] sm:text-[10px] font-semibold", cfg.color)}>{cfg.label}</p>
                         </div>
                       )
                     })}
@@ -587,30 +644,34 @@ export default function AnalyzerPage() {
                     * การวิเคราะห์นี้อ้างอิงตามเกณฑ์ Thai RDI ของกระทรวงสาธารณสุข และไม่ใช่คำแนะนำทางการแพทย์
                   </p>
 
-                  {/* Save to History Button */}
-                  <Button
-                    disabled={hasSaved}
-                    onClick={() => {
-                      addScan({
-                        productName: form.productName || "ไม่ระบุชื่อ",
-                        calories: form.calories,
-                        protein: form.protein,
-                        carbs: form.carbs,
-                        totalFat: form.totalFat,
-                        sugar: form.sugar,
-                        sodium: form.sodium,
-                        score: result.score,
-                        status: result.score >= 80 ? "safe" : result.score >= 50 ? "moderate" : "danger",
-                      })
-                      setHasSaved(true)
-                    }}
-                    className="w-full h-12 bg-black hover:bg-black/90 active:scale-[0.98] text-white font-semibold text-sm"
-                  >
-                    {hasSaved ? "บันทึกลงประวัติแล้ว" : "บันทึกลงประวัติ"}
-                  </Button>
+                  {/* บันทึกลงประวัติให้อัตโนมัติไปแล้วตอนวิเคราะห์ — ไม่ต้องกดอะไรเพิ่ม แค่บอกให้รู้ว่าบันทึกแล้ว */}
+                  <div className="w-full h-11 rounded-xl bg-muted flex items-center justify-center gap-1.5 text-sm font-medium text-muted-foreground">
+                    <CheckCircle className="w-4 h-4 text-primary" />
+                    บันทึกลงประวัติแล้ว
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* Recent scans — keeps the panel useful even before/after an analysis */}
+            {scanHistory.length > 0 && (
+              <div className="bg-card rounded-3xl shadow-sm border border-border p-4">
+                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-xl bg-blue-50 flex items-center justify-center">
+                    <History size={14} className="text-blue-500" />
+                  </span>
+                  สแกนล่าสุด
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {scanHistory.slice(0, 4).map(scan => (
+                    <div key={scan.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-muted/40 border border-border/50">
+                      <p className="text-xs font-medium text-foreground truncate">{scan.productName}</p>
+                      <span className="text-xs font-semibold text-primary tabular-nums shrink-0">{scan.calories} kcal</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

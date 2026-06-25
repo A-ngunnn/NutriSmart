@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Bell, X, CheckCheck, Salad, Activity, Sparkles, AlertCircle } from "lucide-react";
 import {
   CATEGORY_CONFIG,
   NutriNotification,
   NotificationCategory,
 } from "./notification.types";
 import { useNotifications } from "./useNotifications";
+import { LoadingFruits } from "@/components/ui/loading-fruits";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -17,6 +19,13 @@ function relativeTime(iso: string): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)} ชม. ที่แล้ว`;
   return `${Math.floor(diff / 86400)} วันที่แล้ว`;
 }
+
+const CATEGORY_ICON: Record<NotificationCategory, React.ReactNode> = {
+  daily: <Salad size={16} />,
+  goal: <Activity size={16} />,
+  ai: <Sparkles size={16} />,
+  system: <AlertCircle size={16} />,
+};
 
 // ─── NotificationItem ─────────────────────────────────────────────────────────
 
@@ -35,141 +44,59 @@ function NotificationItem({
   return (
     <div
       onClick={() => isUnread && onRead(n.id)}
-      style={{
-        display: "flex",
-        gap: 12,
-        padding: "12px 16px",
-        background: isUnread
-          ? "var(--nutri-surface-raised, #FAFAFA)"
-          : "transparent",
-        borderLeft: isUnread
-          ? `3px solid ${cfg.color}`
-          : "3px solid transparent",
-        cursor: isUnread ? "pointer" : "default",
-        transition: "background 0.15s",
-        position: "relative",
-      }}
+      className={`group relative flex gap-3 px-4 py-3 transition-colors hover:bg-muted/50 ${
+        isUnread ? "bg-primary/5 cursor-pointer" : "cursor-default"
+      }`}
     >
-      {/* Emoji badge */}
       <div
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 12,
-          background: cfg.bgColor,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 20,
-          flexShrink: 0,
-        }}
+        className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center mt-0.5"
+        style={{ background: cfg.bgColor, color: cfg.color }}
       >
-        {n.emoji}
+        {CATEGORY_ICON[n.category as NotificationCategory]}
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-          {isUnread && (
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: cfg.color,
-                flexShrink: 0,
-              }}
-            />
-          )}
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: isUnread ? 600 : 500,
-              color: "var(--nutri-text-primary, #111827)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <p className={`text-sm text-foreground leading-tight ${isUnread ? "font-semibold" : "font-medium"}`}>
             {n.title}
-          </span>
+          </p>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismiss(n.id);
+            }}
+            aria-label="ลบการแจ้งเตือน"
+            className="shrink-0 w-5 h-5 rounded-full hover:bg-muted flex items-center justify-center mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X size={11} className="text-muted-foreground" />
+          </button>
         </div>
 
-        <p
-          style={{
-            fontSize: 12,
-            color: "var(--nutri-text-secondary, #6B7280)",
-            margin: 0,
-            lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
-          {n.body}
-        </p>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">{n.body}</p>
 
-        {/* Progress bar (optional) */}
         {n.meta?.progress !== undefined && (
-          <div
-            style={{
-              marginTop: 8,
-              height: 4,
-              borderRadius: 2,
-              background: "var(--nutri-surface-muted, #E5E7EB)",
-              overflow: "hidden",
-            }}
-          >
+          <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
             <div
-              style={{
-                height: "100%",
-                width: `${Math.min(n.meta.progress * 100, 100)}%`,
-                background: cfg.color,
-                borderRadius: 2,
-                transition: "width 0.4s ease",
-              }}
+              className="h-full rounded-full transition-[width] duration-500"
+              style={{ width: `${Math.min(n.meta.progress * 100, 100)}%`, background: cfg.color }}
             />
           </div>
         )}
 
-        {/* Footer row */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 6,
-          }}
-        >
-          <span style={{ fontSize: 11, color: "var(--nutri-text-muted, #9CA3AF)" }}>
-            {relativeTime(n.createdAt)}
-          </span>
-
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="text-[10px] text-muted-foreground/70">{relativeTime(n.createdAt)}</span>
           <span
-            style={{
-              fontSize: 11,
-              padding: "1px 7px",
-              borderRadius: 20,
-              background: cfg.bgColor,
-              color: cfg.color,
-              fontWeight: 500,
-            }}
+            className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+            style={{ background: cfg.bgColor, color: cfg.color }}
           >
-            {CATEGORY_CONFIG[n.category as NotificationCategory].label}
+            {cfg.label}
           </span>
-
           {n.action && (
             <a
               href={n.action.href}
               onClick={(e) => e.stopPropagation()}
-              style={{
-                fontSize: 11,
-                color: cfg.color,
-                textDecoration: "none",
-                fontWeight: 600,
-                marginLeft: "auto",
-              }}
+              className="text-[11px] font-semibold ml-auto hover:underline"
+              style={{ color: cfg.color }}
             >
               {n.action.label} →
             </a>
@@ -177,50 +104,14 @@ function NotificationItem({
         </div>
       </div>
 
-      {/* Dismiss × */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss(n.id);
-        }}
-        aria-label="ปิดการแจ้งเตือน"
-        style={{
-          position: "absolute",
-          top: 10,
-          right: 10,
-          width: 20,
-          height: 20,
-          border: "none",
-          background: "transparent",
-          cursor: "pointer",
-          color: "var(--nutri-text-muted, #9CA3AF)",
-          fontSize: 16,
-          lineHeight: 1,
-          padding: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 4,
-          opacity: 0,
-          transition: "opacity 0.15s",
-        }}
-        className="nutri-dismiss-btn"
-      >
-        ×
-      </button>
+      {isUnread && <div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-2" />}
     </div>
   );
 }
 
 // ─── Category Filter Tabs ─────────────────────────────────────────────────────
 
-const CATEGORIES: (NotificationCategory | "all")[] = [
-  "all",
-  "daily",
-  "goal",
-  "ai",
-  "system",
-];
+const CATEGORIES: (NotificationCategory | "all")[] = ["all", "daily", "goal", "ai", "system"];
 
 const CAT_LABELS: Record<string, string> = {
   all: "ทั้งหมด",
@@ -237,26 +128,24 @@ interface NotificationCenterProps {
   initialUserId?: string;
 }
 
-export default function NotificationCenter({
-  initialUserId,
-}: NotificationCenterProps) {
+export default function NotificationCenter({ initialUserId }: NotificationCenterProps) {
   const {
     notifications,
     unreadCount,
     loading,
+    error,
     markAsRead,
     markAllAsRead,
     dismiss,
     dismissAll,
     filterByCategory,
     activeCategory,
-    push,
+    refresh,
   } = useNotifications(initialUserId);
 
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
@@ -267,182 +156,51 @@ export default function NotificationCenter({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // เปิดดูแล้วถือว่าอ่านแล้ว — ไม่ต้องกดทีละรายการเอง หน่วงไว้นิดหน่อยให้ทันเห็นว่าอันไหนใหม่
+  // ก่อนจุดจะหายไป (ไม่ใช่หายทันทีจนไม่รู้ว่าเมื่อกี้มีอะไรใหม่บ้าง)
+  useEffect(() => {
+    if (!open || unreadCount === 0) return;
+    const timer = setTimeout(() => markAllAsRead(), 1500);
+    return () => clearTimeout(timer);
+  }, [open, unreadCount, markAllAsRead]);
+
   return (
-    <>
-      <style>{`
-        .nutri-notif-item:hover .nutri-dismiss-btn { opacity: 1 !important; }
-        .nutri-notif-item:hover { background: var(--nutri-surface-hover, #F3F4F6) !important; }
-        .nutri-bell-btn:hover { background: var(--nutri-surface-raised, #F3F4F6) !important; }
-        .nutri-tab:hover { color: var(--nutri-text-primary, #111827) !important; }
-        @keyframes nutri-slide-in {
-          from { opacity: 0; transform: translateY(-8px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0)    scale(1); }
-        }
-        @keyframes nutri-badge-pop {
-          0%   { transform: scale(1); }
-          50%  { transform: scale(1.4); }
-          100% { transform: scale(1); }
-        }
-        @keyframes nutri-spin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
-        }
-      `}</style>
+    <div className="relative" ref={panelRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`การแจ้งเตือน${unreadCount > 0 ? ` (${unreadCount} ใหม่)` : ""}`}
+        className="relative w-9 h-9 rounded-full bg-muted hover:bg-accent flex items-center justify-center transition-colors"
+      >
+        <Bell size={18} className="text-foreground" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </button>
 
-      {/* ── Bell Trigger ── */}
-      <div style={{ position: "relative", display: "inline-block" }} ref={panelRef}>
-        <button
-          className="nutri-bell-btn text-muted-foreground transition-colors hover:text-foreground"
-          onClick={() => setOpen((v) => !v)}
-          aria-label={`การแจ้งเตือน${unreadCount > 0 ? ` (${unreadCount} ใหม่)` : ""}`}
-          style={{
-            position: "relative",
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            background: open
-              ? "var(--nutri-surface-raised, #F3F4F6)"
-              : "transparent",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 18,
-            transition: "background 0.15s, color 0.15s",
-            border: "none",
-          }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-          </svg>
-          {unreadCount > 0 && (
-            <span
-              style={{
-                position: "absolute",
-                top: 4,
-                right: 6,
-                minWidth: 16,
-                height: 16,
-                borderRadius: 9,
-                background: "#EF4444",
-                color: "#fff",
-                fontSize: 10,
-                fontWeight: 700,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "0 4px",
-                border: "2px solid var(--nutri-surface, #fff)",
-                animation: "nutri-badge-pop 0.3s ease",
-              }}
-            >
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </button>
-
-        {/* ── Panel ── */}
-        {open && (
-          <div
-            style={{
-              position: "absolute",
-              top: "calc(100% + 8px)",
-              right: 0,
-              width: 360,
-              maxHeight: 520,
-              borderRadius: 16,
-              background: "var(--nutri-surface, #FFFFFF)",
-              border: "1px solid var(--nutri-border, #E5E7EB)",
-              boxShadow:
-                "0 4px 6px -1px rgba(0,0,0,0.07), 0 10px 24px -4px rgba(0,0,0,0.10)",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              animation: "nutri-slide-in 0.18s ease",
-              zIndex: 999,
-              fontFamily: "'Sarabun', 'Prompt', sans-serif",
-            }}
-          >
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-11 z-50 w-80 bg-card rounded-3xl shadow-xl border border-border overflow-hidden animate-in slide-in-from-top-2 duration-200 flex flex-col max-h-128">
             {/* Header */}
-            <div
-              style={{
-                padding: "14px 16px 10px",
-                borderBottom: "1px solid var(--nutri-border, #E5E7EB)",
-                flexShrink: 0,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 10,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: "var(--nutri-text-primary, #111827)",
-                  }}
-                >
-                  การแจ้งเตือน
-                  {unreadCount > 0 && (
-                    <span
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "#fff",
-                        background: "#EF4444",
-                        borderRadius: 10,
-                        padding: "1px 7px",
-                      }}
-                    >
-                      {unreadCount} ใหม่
-                    </span>
-                  )}
-                </span>
-                <div style={{ display: "flex", gap: 8 }}>
+            <div className="px-4 py-3 border-b border-border shrink-0">
+              <div className="flex items-center justify-between mb-2.5">
+                <div>
+                  <h3 className="font-semibold text-foreground text-sm">การแจ้งเตือน</h3>
+                  {unreadCount > 0 && <p className="text-xs text-muted-foreground">{unreadCount} รายการที่ยังไม่ได้อ่าน</p>}
+                </div>
+                <div className="flex items-center gap-3">
                   {unreadCount > 0 && (
                     <button
                       onClick={markAllAsRead}
-                      style={{
-                        fontSize: 12,
-                        color: "#1D9E75",
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontWeight: 500,
-                        fontFamily: "inherit",
-                      }}
+                      className="text-xs text-primary font-medium flex items-center gap-1 hover:underline"
                     >
-                      อ่านทั้งหมด
+                      <CheckCheck size={13} />อ่านทั้งหมด
                     </button>
                   )}
                   {notifications.length > 0 && (
-                    <button
-                      onClick={dismissAll}
-                      style={{
-                        fontSize: 12,
-                        color: "var(--nutri-text-muted, #9CA3AF)",
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                      }}
-                    >
+                    <button onClick={dismissAll} className="text-xs text-muted-foreground hover:underline">
                       ล้างทั้งหมด
                     </button>
                   )}
@@ -450,44 +208,22 @@ export default function NotificationCenter({
               </div>
 
               {/* Category tabs */}
-              <div style={{ display: "flex", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
+              <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
                 {CATEGORIES.map((cat) => {
-                  const isActive =
-                    cat === "all" ? !activeCategory : activeCategory === cat;
-                  const color =
-                    cat === "all"
-                      ? "#1D9E75"
-                      : CATEGORY_CONFIG[cat as NotificationCategory].color;
+                  const isActive = cat === "all" ? !activeCategory : activeCategory === cat;
+                  const color = cat === "all" ? "#1D9E75" : CATEGORY_CONFIG[cat as NotificationCategory].color;
+                  const bg =
+                    cat === "all" ? "#E6F7F2" : CATEGORY_CONFIG[cat as NotificationCategory].bgColor;
                   return (
                     <button
                       key={cat}
-                      className="nutri-tab"
-                      onClick={() =>
-                        filterByCategory(
-                          cat === "all" ? undefined : (cat as NotificationCategory)
-                        )
+                      onClick={() => filterByCategory(cat === "all" ? undefined : (cat as NotificationCategory))}
+                      className="whitespace-nowrap text-xs px-3 py-1 rounded-full border transition-colors"
+                      style={
+                        isActive
+                          ? { borderColor: color, background: bg, color, fontWeight: 600 }
+                          : { borderColor: "transparent", background: "var(--muted)", color: "var(--muted-foreground)" }
                       }
-                      style={{
-                        whiteSpace: "nowrap",
-                        fontSize: 12,
-                        padding: "4px 11px",
-                        borderRadius: 20,
-                        border: isActive
-                          ? `1.5px solid ${color}`
-                          : "1.5px solid transparent",
-                        background: isActive
-                          ? cat === "all"
-                            ? "#E6F7F2"
-                            : CATEGORY_CONFIG[cat as NotificationCategory].bgColor
-                          : "var(--nutri-surface-muted, #F3F4F6)",
-                        color: isActive
-                          ? color
-                          : "var(--nutri-text-secondary, #6B7280)",
-                        cursor: "pointer",
-                        fontWeight: isActive ? 600 : 400,
-                        transition: "all 0.15s",
-                        fontFamily: "inherit",
-                      }}
                     >
                       {CAT_LABELS[cat]}
                     </button>
@@ -497,116 +233,37 @@ export default function NotificationCenter({
             </div>
 
             {/* List */}
-            <div style={{ overflowY: "auto", flex: 1 }}>
+            <div className="overflow-y-auto flex-1 divide-y divide-border">
               {loading ? (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "48px 24px",
-                    gap: 10,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 28,
-                      height: 28,
-                      border: "3px solid #E5E7EB",
-                      borderTop: "3px solid #1D9E75",
-                      borderRadius: "50%",
-                      animation: "nutri-spin 0.7s linear infinite",
-                    }}
-                  />
-                  <p style={{ fontSize: 13, color: "var(--nutri-text-muted, #9CA3AF)", margin: 0 }}>
-                    กำลังโหลดการแจ้งเตือน...
-                  </p>
+                <div className="flex flex-col items-center justify-center py-10">
+                  <LoadingFruits label="กำลังโหลดการแจ้งเตือน..." size="sm" />
+                </div>
+              ) : error ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2.5 px-6">
+                  <AlertCircle size={28} className="text-red-500" />
+                  <p className="text-xs text-red-500 font-semibold text-center">โหลดการแจ้งเตือนไม่สำเร็จ</p>
+                  <p className="text-[11px] text-muted-foreground text-center break-all">{error}</p>
+                  <button
+                    onClick={refresh}
+                    className="mt-1 text-xs font-medium px-4 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary/5"
+                  >
+                    ลองใหม่อีกครั้ง
+                  </button>
                 </div>
               ) : notifications.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "48px 24px",
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ fontSize: 36 }}>🔕</span>
-                  <p
-                    style={{
-                      fontSize: 14,
-                      color: "var(--nutri-text-muted, #9CA3AF)",
-                      margin: 0,
-                      textAlign: "center",
-                    }}
-                  >
-                    ไม่มีการแจ้งเตือนในขณะนี้
-                  </p>
+                <div className="py-10 text-center">
+                  <Bell size={32} className="mx-auto text-muted-foreground/30 mb-2" />
+                  <p className="text-sm text-muted-foreground">ไม่มีการแจ้งเตือน</p>
                 </div>
               ) : (
-                notifications.map((n, idx) => (
-                  <div
-                    key={n.id}
-                    className="nutri-notif-item"
-                    style={{
-                      borderBottom:
-                        idx < notifications.length - 1
-                          ? "1px solid var(--nutri-border-light, #F3F4F6)"
-                          : "none",
-                    }}
-                  >
-                    <NotificationItem
-                      n={n}
-                      onRead={markAsRead}
-                      onDismiss={dismiss}
-                    />
-                  </div>
+                notifications.map((n) => (
+                  <NotificationItem key={n.id} n={n} onRead={markAsRead} onDismiss={dismiss} />
                 ))
               )}
             </div>
-
-            {/* Demo: push button (remove in production) */}
-            <div
-              style={{
-                padding: "10px 16px",
-                borderTop: "1px solid var(--nutri-border, #E5E7EB)",
-                flexShrink: 0,
-              }}
-            >
-              <button
-                onClick={() =>
-                  push({
-                    category: "daily",
-                    priority: "medium",
-                    emoji: "🥤",
-                    title: "เวลาดื่มน้ำแล้วนะ!",
-                    body: "จิบน้ำสักแก้วตอนนี้เลย ร่างกายจะขอบคุณคุณมากเลย 💧",
-                    action: { label: "บันทึก", href: "/log/water" },
-                  })
-                }
-                style={{
-                  width: "100%",
-                  padding: "8px",
-                  borderRadius: 10,
-                  border: "1.5px dashed #9FE1CB",
-                  background: "transparent",
-                  color: "#1D9E75",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  transition: "background 0.15s",
-                }}
-              >
-                + จำลองการแจ้งเตือนใหม่ (Demo)
-              </button>
-            </div>
           </div>
-        )}
-      </div>
-    </>
+        </>
+      )}
+    </div>
   );
 }

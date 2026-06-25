@@ -12,6 +12,7 @@ import {
   fetchWaterLogs,
   createWaterLog,
   deleteWaterLog,
+  type ProfileData,
 } from "@/lib/backend-api";
 
 // ── Supabase Singleton ─────────────────────────────────────────────────────────────────────────
@@ -19,15 +20,7 @@ const supabaseClient = createClient();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface ProfileData {
-  name: string
-  age: string
-  gender: string
-  weight: string
-  height: string
-  activityLevel: string
-  goal: string
-}
+export type { ProfileData };
 
 export interface FoodEntry {
   id: string
@@ -52,6 +45,7 @@ export interface ScanRecord {
   sodium: number
   score: number
   status: "safe" | "moderate" | "danger"
+  imageUrl?: string
 }
 
 export interface WaterEntry {
@@ -64,6 +58,8 @@ export interface WaterEntry {
 
 export const DEFAULT_PROFILE: ProfileData = {
   name: "",
+  email: "",
+  avatarUrl: "",
   age: "",
   gender: "male",
   weight: "",
@@ -75,7 +71,11 @@ export const DEFAULT_PROFILE: ProfileData = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function calcBMI(weightKg: number, heightCm: number): number {
@@ -95,6 +95,7 @@ export function calcTDEE(weight: number, height: number, age: number, gender: st
   let tdee = bmr * (factors[activityLevel] ?? 1.2)
   if (goal === "lose") tdee -= 500
   if (goal === "gain") tdee += 500
+  if (goal === "muscle") tdee += 300
   return Math.round(tdee)
 }
 
@@ -122,6 +123,7 @@ interface AppState {
   // Actions
   setUserName: (name: string) => Promise<void>
   setProfile: (profile: ProfileData) => Promise<void>
+  setAvatarUrl: (avatarUrl: string) => Promise<void>
 
   addFoodEntry: (entry: Omit<FoodEntry, "id" | "date">) => Promise<void>
   removeFoodEntry: (id: string) => Promise<void>
@@ -129,6 +131,7 @@ interface AppState {
   getTodayCalories: () => number
 
   addScan: (scan: Omit<ScanRecord, "id" | "date">) => Promise<void>
+  addScanLocal: (scan: Omit<ScanRecord, "id" | "date">) => void
 
   addWaterEntry: (amount: number) => Promise<void>
   removeWaterEntry: (id: string) => Promise<void>
@@ -171,14 +174,32 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      addFoodEntry: async (entry) => {
+      setAvatarUrl: async (avatarUrl) => {
+        // Optimistic update ทันที แล้วค่อย sync หลังบ้าน
+        set((state) => ({ profile: { ...state.profile, avatarUrl } }))
         const { data: { session } } = await supabaseClient.auth.getSession()
-        if (!session) return
+        if (session) {
+          try {
+            const { updateAvatarUrl } = await import("@/lib/backend-api")
+            const saved = await updateAvatarUrl(avatarUrl, session.user.id)
+            set((state) => ({ profile: { ...state.profile, avatarUrl: saved.avatarUrl || avatarUrl } }))
+          } catch (e) {
+            console.error("[store] setAvatarUrl failed:", e)
+          }
+        }
+      },
 
-        // 🚀 Optimistic Update: โชว์ข้อมูลบนหน้าจอทันที
+      addFoodEntry: async (entry) => {
+        // 🚀 Optimistic Update: โชว์ข้อมูลบนหน้าจอทันที ก่อนรอเช็ค session
         const tempId = `temp-${Date.now()}`
         const optimisticEntry: FoodEntry = { ...entry, id: tempId, date: todayKey() }
         set((state) => ({ foodEntries: [optimisticEntry, ...state.foodEntries] }))
+
+        const { data: { session } } = await supabaseClient.auth.getSession()
+        if (!session) {
+          set((state) => ({ foodEntries: state.foodEntries.filter((e) => e.id !== tempId) }))
+          return
+        }
 
         try {
           const created = await createFoodLog({ ...entry, date: todayKey() }, session.user.id)
@@ -216,14 +237,24 @@ export const useAppStore = create<AppState>()(
           .reduce((sum, e) => sum + e.calories, 0)
       },
 
-      addScan: async (scan) => {
-        const { data: { session } } = await supabaseClient.auth.getSession()
-        if (!session) return
+      // ใช้ตอน backend auto-save สแกนนี้ไปแล้วเอง (เช่นผ่าน /api/analyze/image หรือ /manual ที่ save=true
+      // อยู่แล้วในตัว) — แค่ sync local state ให้ตรง ไม่ต้องยิง POST ซ้ำเป็นรายการที่สองของสแกนเดียวกัน
+      addScanLocal: (scan) => {
+        const localScan: ScanRecord = { ...scan, id: `temp-${Date.now()}`, date: todayKey() }
+        set((state) => ({ scanHistory: [localScan, ...state.scanHistory] }))
+      },
 
-        // 🚀 Optimistic Update
+      addScan: async (scan) => {
+        // 🚀 Optimistic Update: โชว์ข้อมูลบนหน้าจอทันที ก่อนรอเช็ค session
         const tempId = `temp-${Date.now()}`
         const optimisticScan: ScanRecord = { ...scan, id: tempId, date: todayKey() }
         set((state) => ({ scanHistory: [optimisticScan, ...state.scanHistory] }))
+
+        const { data: { session } } = await supabaseClient.auth.getSession()
+        if (!session) {
+          set((state) => ({ scanHistory: state.scanHistory.filter((e) => e.id !== tempId) }))
+          return
+        }
 
         try {
           const created = await createScanLog({ ...scan, date: todayKey() }, session.user.id)
@@ -239,13 +270,16 @@ export const useAppStore = create<AppState>()(
       },
 
       addWaterEntry: async (amount) => {
-        const { data: { session } } = await supabaseClient.auth.getSession()
-        if (!session) return
-
-        // 🚀 Optimistic Update
+        // 🚀 Optimistic Update: โชว์ข้อมูลบนหน้าจอทันที ก่อนรอเช็ค session
         const tempId = `temp-${Date.now()}`
         const optimisticEntry: WaterEntry = { id: tempId, amount, date: todayKey() }
         set((state) => ({ waterEntries: [optimisticEntry, ...state.waterEntries] }))
+
+        const { data: { session } } = await supabaseClient.auth.getSession()
+        if (!session) {
+          set((state) => ({ waterEntries: state.waterEntries.filter((e) => e.id !== tempId) }))
+          return
+        }
 
         try {
           const created = await createWaterLog(amount, todayKey(), session.user.id)
@@ -262,6 +296,11 @@ export const useAppStore = create<AppState>()(
 
       removeWaterEntry: async (id) => {
         set((state) => ({ waterEntries: state.waterEntries.filter((e) => e.id !== id) }))
+
+        // entry ที่ยังเป็น optimistic id (ยังไม่ถูกแทนที่ด้วย UUID จริงจาก backend)
+        // ยังไม่มีอยู่ใน DB เลย — ลบจาก local state ก็พอ ห้ามยิง DELETE ไปเพราะ backend
+        // จะ throw 500 (invalid uuid syntax) เนื่องจาก id ไม่ใช่ uuid ที่ถูกต้อง
+        if (id.startsWith("temp-")) return
 
         const { data: { session } } = await supabaseClient.auth.getSession()
         if (session) {
@@ -280,10 +319,12 @@ export const useAppStore = create<AppState>()(
         if (!userId) return
 
         try {
-          const profile = await fetchUserProfile(userId)
-          const foodEntries = await fetchFoodLogs(userId)
-          const scanHistory = (await fetchScanLogs(userId)) as ScanRecord[]
-          const waterEntries = await fetchWaterLogs(userId)
+          const [profile, foodEntries, scanHistory, waterEntries] = await Promise.all([
+            fetchUserProfile(userId),
+            fetchFoodLogs(userId),
+            fetchScanLogs(userId) as Promise<ScanRecord[]>,
+            fetchWaterLogs(userId),
+          ])
 
           set({
             userName: profile.name || "",
@@ -292,6 +333,38 @@ export const useAppStore = create<AppState>()(
             scanHistory,
             waterEntries,
           })
+
+          // Auto-sync avatar from Supabase auth metadata if not already in DB
+          // LINE login → raw_user_meta_data.avatar_url (LINE pictureUrl)
+          // Email login → raw_user_meta_data.avatar_url (gravatar or provider picture)
+          if (!profile.avatarUrl) {
+            try {
+              const { data: { user } } = await supabaseClient.auth.getUser()
+              const metaAvatar =
+                user?.user_metadata?.avatar_url ||
+                user?.user_metadata?.picture ||
+                user?.user_metadata?.pictureUrl ||
+                ""
+              const metaEmail = user?.email || user?.user_metadata?.email || ""
+              if (metaAvatar) {
+                // บันทึกลง DB โดย call PATCH /api/profile/avatar
+                const { updateAvatarUrl } = await import("@/lib/backend-api")
+                const saved = await updateAvatarUrl(metaAvatar, userId)
+                set((state) => ({
+                  profile: {
+                    ...state.profile,
+                    avatarUrl: saved.avatarUrl || metaAvatar,
+                    email: saved.email || metaEmail || state.profile.email,
+                  },
+                }))
+              } else if (metaEmail) {
+                // ไม่มีรูป แต่มีอีเมล — sync อีเมลไว้ก่อน
+                set((state) => ({ profile: { ...state.profile, email: metaEmail } }))
+              }
+            } catch (avatarErr) {
+              console.warn("[store] Avatar auto-sync failed (non-critical):", avatarErr)
+            }
+          }
         } catch (error) {
           console.error("fetchUserData failed:", error)
         }

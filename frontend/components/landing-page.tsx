@@ -3,6 +3,7 @@
 import { Leaf, Search, BarChart2, BookOpen, ArrowRight, Play, ChevronDown, CheckCircle, Shield, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { NutriSmartWordmark } from "@/components/ui/nutrismart-wordmark"
 
 interface LandingPageProps {
   onNavigate: (page: string) => void
@@ -14,10 +15,8 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
       {/* Navbar */}
       <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-border px-4 md:px-8 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
-            <Leaf className="w-5 h-5 text-white" />
-          </div>
-          <span className="font-bold text-lg text-foreground">NutriSmart</span>
+          <img src="/icons/Logo.png" alt="NutriSmart" className="w-9 h-9 object-contain" />
+          <NutriSmartWordmark className="text-lg" />
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -72,10 +71,10 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           </div>
 
           {/* Right – Phone Mockup */}
-          <div className="flex-shrink-0 flex justify-center">
-            <div className="relative w-[260px] md:w-[300px]">
+          <div className="shrink-0 flex justify-center">
+            <div className="relative w-65 md:w-75">
               <div className="rounded-[2.5rem] bg-gray-900 p-3 shadow-2xl">
-                <div className="rounded-[2rem] bg-white overflow-hidden">
+                <div className="rounded-4xl bg-white overflow-hidden">
                   {/* Phone top notch */}
                   <div className="bg-gray-900 h-7 flex items-center justify-center">
                     <div className="w-20 h-4 bg-gray-800 rounded-full" />
@@ -159,7 +158,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               { icon: CheckCircle, title: "อิงมาตรฐาน Thai RDI", desc: "เกณฑ์การประเมินอิงตามปริมาณสารอาหารอ้างอิง (Thai RDI) ของกระทรวงสาธารณสุข" },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="flex gap-4">
-                <div className="mt-1 w-10 h-10 rounded-full bg-[--nutri-green-light] flex items-center justify-center flex-shrink-0">
+                <div className="mt-1 w-10 h-10 rounded-full bg-[--nutri-green-light] flex items-center justify-center shrink-0">
                   <Icon className="w-5 h-5 text-primary" />
                 </div>
                 <div>

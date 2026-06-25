@@ -1,14 +1,15 @@
-"""
-Router: /api/chat – NutriChat RAG-enhanced conversation endpoint.
-"""
+# backend/routers/chat.py
 
-from typing import Optional
-from fastapi import APIRouter, HTTPException
+import logging
+from typing import Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services.ai_service import chat
+from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
+_logger = logging.getLogger("nutrismart.chat")
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: Optional[list[ChatMessage]] = None
+    user_profile: Optional[Dict[str, Any]] = None  # 🌟 [เพิ่มจุดนี้] เพื่อให้รองรับ Profile ที่หน้าบ้านส่งมานาย!
 
 
 class ChatResponse(BaseModel):
@@ -30,7 +32,7 @@ class ChatResponse(BaseModel):
 # ── Endpoint ─────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=ChatResponse)
-async def nutri_chat(body: ChatRequest):
+async def nutri_chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
     """Send a message to NutriSmart AI chatbot (RAG-enhanced)."""
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="ข้อความต้องไม่เป็นค่าว่าง")
@@ -40,9 +42,11 @@ async def nutri_chat(body: ChatRequest):
         if body.history:
             history_dicts = [{"role": m.role, "content": m.content} for m in body.history]
 
-        reply = await chat(body.message, chat_history=history_dicts)
+        # 🌟 [แก้ไข] ส่งพ่วง user_profile เข้าไปในฟังก์ชันระดับ Service ด้วย
+        reply = await chat(body.message, chat_history=history_dicts, user_profile=body.user_profile)
         return ChatResponse(reply=reply)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการตอบ: {str(e)}")
+    except Exception:
+        _logger.exception("Chat reply failed")
+        raise HTTPException(status_code=500, detail="เกิดข้อผิดพลาดในการตอบ กรุณาลองใหม่อีกครั้ง")
