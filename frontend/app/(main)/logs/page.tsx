@@ -13,6 +13,7 @@ function calcTDEE(weight: number, height: number, age: number, gender: string, a
   let tdee = bmr * (factors[activityLevel] ?? 1.2)
   if (goal === "lose") tdee -= 500
   if (goal === "gain") tdee += 500
+  if (goal === "muscle") tdee += 300
   return Math.round(tdee)
 }
 

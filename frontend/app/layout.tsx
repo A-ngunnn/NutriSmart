@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   description: 'Analyze nutrition labels with MedGemma AI. Track daily intake against Thai RDI guidelines for a healthier lifestyle.',
   generator: 'v0.app',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/icons/Logo.png',
+    apple: '/icons/Logo.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -22,8 +26,6 @@ export const viewport = {
   themeColor: '#1d9e75',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
 }
 
 export default function RootLayout({

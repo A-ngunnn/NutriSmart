@@ -47,11 +47,14 @@ def upsert_global_food(name: str, calories: float, protein: float, carbs: float,
             ).first()
 
             if existing:
-                # Moving average: ค่อยๆ เฉลี่ยค่าที่ได้รับมาใหม่เพื่อให้ข้อมูลแม่นยำขึ้นเรื่อยๆ
-                existing.calories = round((existing.calories + calories) / 2, 1)
-                existing.protein  = round((existing.protein  + protein)  / 2, 1)
-                existing.carbs    = round((existing.carbs    + carbs)    / 2, 1)
-                existing.fat      = round((existing.fat      + fat)      / 2, 1)
+                # Running average over all samples seen so far, weighted by sample_count
+                # (a plain (old + new) / 2 would over-weight the latest sample every time)
+                n = existing.sample_count or 1
+                existing.calories = round(existing.calories + (calories - existing.calories) / (n + 1), 1)
+                existing.protein  = round(existing.protein  + (protein  - existing.protein)  / (n + 1), 1)
+                existing.carbs    = round(existing.carbs    + (carbs    - existing.carbs)    / (n + 1), 1)
+                existing.fat      = round(existing.fat      + (fat      - existing.fat)      / (n + 1), 1)
+                existing.sample_count = n + 1
                 existing.updated_at = now
             else:
                 new_item = models.GlobalFoodItem(
@@ -62,6 +65,7 @@ def upsert_global_food(name: str, calories: float, protein: float, carbs: float,
                     carbs=round(carbs, 1),
                     fat=round(fat, 1),
                     source=source,
+                    sample_count=1,
                     created_at=now,
                     updated_at=now,
                 )
@@ -124,7 +128,7 @@ def seed_global_foods() -> int:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/search", response_model=List[FoodItemResponse])
-async def search_food(
+def search_food(
     query: str = Query(..., min_length=1, description="คำค้นหาชื่ออาหาร"),
     limit: int = Query(default=8, le=20),
     _user_id: str = Depends(get_current_user),
@@ -156,7 +160,7 @@ async def search_food(
 
 
 @router.get("/popular", response_model=List[FoodItemResponse])
-async def popular_foods(
+def popular_foods(
     limit: int = Query(default=10, le=30),
     _user_id: str = Depends(get_current_user),
 ):

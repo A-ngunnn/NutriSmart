@@ -3,38 +3,38 @@ Notifications Router – FastAPI
 ดึง / อัปเดต / สร้างการแจ้งเตือนจริงจากฐานข้อมูล PostgreSQL (Supabase)
 
 Endpoints:
-  GET    /api/notifications          — ดึงรายการแจ้งเตือนของ user
-  PUT    /api/notifications/{id}/read — อ่านแล้ว (is_read = true)
-  DELETE /api/notifications/{id}     — ลบ (soft-dismiss)
-  POST   /api/notifications/trigger-summary — เดโม: ให้ MedGemma สรุปสุขภาพสัปดาห์
+  GET    /api/notifications              — ดึงรายการแจ้งเตือนของ user
+  PUT    /api/notifications/{id}/read    — อ่านแล้ว (is_read = true)
+  DELETE /api/notifications/{id}         — ลบ (soft-dismiss)
+  POST   /api/notifications/trigger-summary/weekly  — เทรนเนอร์สรุปสุขภาพรายสัปดาห์ (manual/demo)
+  POST   /api/notifications/trigger-summary/monthly — เทรนเนอร์สรุปแนวโน้มรายเดือน (manual/demo)
+  POST   /api/notifications/trigger-summary/yearly  — เทรนเนอร์สรุปแนวโน้มรายปี (manual/demo)
+  POST   /api/notifications/trigger-reminder        — เทรนเนอร์ตามจิกให้เข้ามาอัปเดตข้อมูล (manual/demo)
+
+หมายเหตุ: ตั้งแต่เพิ่ม services/notification_scheduler.py แล้ว endpoint trigger-* ด้านบนไม่ใช่ทาง
+เดียวที่แจ้งเตือนเหล่านี้จะถูกส่งอีกต่อไป — scheduler จะเรียกตรรกะเดียวกัน (จาก
+services/trainer_notifications.py) ให้อัตโนมัติตามตารางเวลาในระบบจริง endpoint พวกนี้ที่เหลือไว้
+สำหรับให้ทดสอบ/เดโมแจ้งเตือนได้ทันทีโดยไม่ต้องรอตารางเวลา
 """
 
-import uuid
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
 
-import httpx
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from config import get_settings
 from database import SessionLocal
 import models
-from services.line_service import send_line_if_available
-from services.storage_service import insert_notification
-from services.ai_service import call_medgemma
+from services.trainer_notifications import (
+    run_weekly_summary, run_monthly_summary, run_yearly_summary, run_daily_reminder,
+    run_sodium_good_day,
+)
 from middleware.auth import get_current_user
 
-settings = get_settings()
 logger = logging.getLogger("nutrismart.notifications")
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
-
-# ── Constants ────────────────────────────────────────────────────────────────
-SODIUM_DAILY_LIMIT_MG = 2_000.0
-
-DEFAULT_USER_ID = "default"
 
 
 # ── Pydantic Schemas ─────────────────────────────────────────────────────────
@@ -63,12 +63,19 @@ class TriggerSummaryResponse(BaseModel):
     notification_id: str
     title: str
     body: str
+    line_sent: bool  # True = คิวส่ง LINE ไว้แล้ว (background), False = ไม่มี line_user_id ผูกไว้
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+class ReminderRequest(BaseModel):
+    user_id: Optional[str] = None
+    force: bool = False  # True = ส่งเตือนเสมอ แม้ลูกเทรนจะบันทึกข้อมูลวันนี้ไปแล้ว (ใช้ตอนเดโม)
 
-def _today_str() -> str:
-    return date.today().isoformat()
+
+class ReminderResponse(BaseModel):
+    sent: bool
+    notification_id: Optional[str] = None
+    title: str
+    body: str
 
 
 def _row_to_response(row: models.Notification) -> NotificationResponse:
@@ -85,24 +92,29 @@ def _row_to_response(row: models.Notification) -> NotificationResponse:
     )
 
 
+# ── Endpoints: CRUD ──────────────────────────────────────────────────────────
 
+NOTIFICATION_MAX_AGE_DAYS = 14  # ของเก่ากว่านี้ไม่มีประโยชน์แล้ว (เช่น "โซเดียมเกินวันนี้" ของ 2 สัปดาห์ก่อน) ไม่ต้องโชว์ปนกับของใหม่
 
-
-# ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[NotificationResponse])
 @router.get("/", response_model=List[NotificationResponse], include_in_schema=False)
-async def list_notifications(user_id: str = Depends(get_current_user)):
+def list_notifications(user_id: str = Depends(get_current_user)):
     """
-    ดึงรายการแจ้งเตือนทั้งหมดของ user
+    ดึงรายการแจ้งเตือนของ user ที่ไม่เก่าเกิน NOTIFICATION_MAX_AGE_DAYS วัน
     เรียงลำดับ: ยังไม่อ่านขึ้นก่อน → ล่าสุดก่อน
+
+    ของเก่ากว่านั้นไม่ต้องลบจริง (เผื่ออยากดูประวัติย้อนหลังในอนาคต) แค่ไม่โชว์ในลิสต์หลัก
+    เพื่อไม่ให้ปนกับของใหม่จนดูรกและเข้าใจผิดว่าเป็นของซ้ำ
     """
+    cutoff = (datetime.utcnow() - timedelta(days=NOTIFICATION_MAX_AGE_DAYS)).isoformat()
     with SessionLocal() as db:
         rows = (
             db.query(models.Notification)
             .filter(
                 models.Notification.user_id == user_id,
                 models.Notification.is_dismissed == False,  # noqa: E712
+                models.Notification.created_at >= cutoff,
             )
             .order_by(
                 models.Notification.is_read.asc(),   # False (unread) = 0 → ขึ้นก่อน
@@ -114,7 +126,7 @@ async def list_notifications(user_id: str = Depends(get_current_user)):
 
 
 @router.put("/{notification_id}/read", response_model=NotificationResponse)
-async def mark_as_read(
+def mark_as_read(
     notification_id: str,
     user_id: str = Depends(get_current_user),
 ):
@@ -138,7 +150,7 @@ async def mark_as_read(
 
 
 @router.delete("/{notification_id}")
-async def dismiss_notification(
+def dismiss_notification(
     notification_id: str,
     user_id: str = Depends(get_current_user),
 ):
@@ -159,135 +171,98 @@ async def dismiss_notification(
         return {"success": True}
 
 
-@router.post("/trigger-summary", response_model=TriggerSummaryResponse)
+# ── Endpoints: Period Summaries (manual/demo trigger — see module docstring) ─
+
+@router.post("/trigger-summary/weekly", response_model=TriggerSummaryResponse)
 async def trigger_weekly_summary(
     body: TriggerSummaryRequest,
-    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user),
 ):
-    """
-    เดโมสำหรับการนำเสนอ:
-    - ดึง Food Logs ย้อนหลัง 7 วัน
-    - ส่งให้ MedGemma สรุปสุขภาพเป็นข้อความสวยงาม
-    - INSERT ลงตาราง notifications จริง
-    """
-    today = date.today()
-    start_date = (today - timedelta(days=6)).isoformat()
-    end_date = today.isoformat()
+    notif = await run_weekly_summary(user_id)
+    return TriggerSummaryResponse(inserted=True, notification_id=notif.id, title=notif.title, body=notif.body, line_sent=True)
 
-    # ── ดึงข้อมูลอาหาร 7 วัน ──────────────────────────────────────────────
-    with SessionLocal() as db:
-        food_rows = (
-            db.query(models.FoodLog)
-            .filter(
-                models.FoodLog.user_id == user_id,
-                models.FoodLog.date >= start_date,
-                models.FoodLog.date <= end_date,
+
+@router.post("/trigger-summary/monthly", response_model=TriggerSummaryResponse)
+async def trigger_monthly_summary(
+    body: TriggerSummaryRequest,
+    user_id: str = Depends(get_current_user),
+):
+    notif = await run_monthly_summary(user_id)
+    return TriggerSummaryResponse(inserted=True, notification_id=notif.id, title=notif.title, body=notif.body, line_sent=True)
+
+
+@router.post("/trigger-summary/yearly", response_model=TriggerSummaryResponse)
+async def trigger_yearly_summary(
+    body: TriggerSummaryRequest,
+    user_id: str = Depends(get_current_user),
+):
+    notif = await run_yearly_summary(user_id)
+    return TriggerSummaryResponse(inserted=True, notification_id=notif.id, title=notif.title, body=notif.body, line_sent=True)
+
+
+# ── Endpoint: Proactive Reminder ("ตามจิก/สะกิดลูกเทรน") ─────────────────────
+
+@router.post("/trigger-reminder", response_model=ReminderResponse)
+async def trigger_reminder(
+    body: ReminderRequest,
+    user_id: str = Depends(get_current_user),
+):
+    notif = await run_daily_reminder(user_id, force=body.force)
+    if notif is None:
+        return ReminderResponse(
+            sent=False,
+            title="ลูกเทรนอัปเดตข้อมูลวันนี้แล้ว",
+            body="ไม่ต้องส่งเตือนซ้ำ เทรนเนอร์เห็นว่าลูกเทรนบันทึกข้อมูลวันนี้ไปแล้ว เก่งมาก!",
+        )
+    return ReminderResponse(sent=True, notification_id=notif.id, title=notif.title, body=notif.body)
+
+
+@router.post("/trigger-summary/sodium-good-day", response_model=ReminderResponse)
+async def trigger_sodium_good_day(user_id: str = Depends(get_current_user)):
+    """ทดสอบแจ้งเตือนเชิงชม (โซเดียมวันนี้ต่ำกว่าเกณฑ์) — ของจริงเช็คช่วงค่ำ ปุ่มนี้กดดูผลได้ทันที"""
+    notif = await run_sodium_good_day(user_id)
+    if notif is None:
+        return ReminderResponse(
+            sent=False,
+            title="ยังส่งไม่ได้ตอนนี้",
+            body="วันนี้ยังไม่มีผลสแกน หรือโซเดียมรวมยังเกิน 70% ของเกณฑ์ — ลองสแกนอาหารโซเดียมต่ำดูก่อนนะคะ",
+        )
+    return ReminderResponse(sent=True, notification_id=notif.id, title=notif.title, body=notif.body)
+
+
+# ── Endpoint: ทดสอบ Web Push (FCM) ───────────────────────────────────────────
+
+@router.post("/test-push")
+async def test_push_notification(user_id: str = Depends(get_current_user)):
+    """ส่ง Web Push ทดสอบไปยังทุกอุปกรณ์ที่ user เปิดรับแจ้งเตือนไว้ทันที (ไม่ผ่าน background task)
+    เพื่อให้หน้าตั้งค่าแสดงผลลัพธ์ success/fail ได้จริงทันที ต่างจาก send_push_if_available ที่ fire-and-forget เสมอ"""
+    from services.storage_service import get_device_tokens
+    from services.fcm_service import send_push_notification
+    from firebase_admin import messaging as fcm_messaging
+
+    tokens = get_device_tokens(user_id)
+    if not tokens:
+        raise HTTPException(status_code=400, detail="ยังไม่ได้เปิดรับการแจ้งเตือนบนอุปกรณ์นี้ กรุณากดเปิดสิทธิ์ก่อน")
+
+    sent_count = 0
+    for token in tokens:
+        try:
+            ok = send_push_notification(
+                fcm_token=token,
+                title="ทดสอบการแจ้งเตือน ✅",
+                body="เชื่อมต่อสำเร็จแล้ว! ต่อจากนี้คุณจะได้รับการแจ้งเตือนจาก NutriSmart บนอุปกรณ์นี้ด้วยนะคะ",
+                emoji="✅",
+                category="system",
+                priority="low",
             )
-            .order_by(models.FoodLog.date.desc())
-            .all()
+            if ok:
+                sent_count += 1
+        except fcm_messaging.UnregisteredError:
+            continue  # token หมดอายุ — ปล่อยให้รอบ push จริงครั้งต่อไปลบออก ไม่ต้อง fail การทดสอบนี้
+
+    if sent_count == 0:
+        raise HTTPException(
+            status_code=502,
+            detail="ส่งไม่สำเร็จ — ตรวจสอบว่าตั้งค่า Firebase ฝั่ง backend ถูกต้อง (FIREBASE_SERVICE_ACCOUNT_*) และลองเปิดสิทธิ์ใหม่อีกครั้ง",
         )
-
-    if not food_rows:
-        # ยังไม่มีข้อมูล → INSERT แจ้งเตือนแนะนำให้บันทึกอาหาร
-        notif = insert_notification(
-            user_id=user_id,
-            category="ai",
-            priority="medium",
-            title="ยังไม่มีข้อมูลอาหาร 7 วันที่ผ่านมา",
-            body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
-            emoji="📊",
-        )
-        # ── ส่ง LINE Push ด้วย (Background) ──────────────────────────────────
-        background_tasks.add_task(
-            send_line_if_available,
-            user_id=user_id,
-            title="ยังไม่มีข้อมูลอาหาร 7 วันที่ผ่านมา",
-            body="ลองบันทึกอาหารทุกมื้อเพื่อให้ AI สรุปรายงานสุขภาพให้คุณได้นะคะ 🥗",
-            emoji="📊",
-            category="ai",
-            priority="medium",
-        )
-        return TriggerSummaryResponse(
-            inserted=True,
-            notification_id=notif.id,
-            title=notif.title,
-            body=notif.body,
-        )
-
-    # ── สรุปสถิติรายวัน ────────────────────────────────────────────────────
-    day_stats: dict[str, dict] = {}
-    for row in food_rows:
-        d = str(row.date)
-        if d not in day_stats:
-            day_stats[d] = {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
-        day_stats[d]["calories"] += float(row.calories or 0)
-        day_stats[d]["protein"] += float(row.protein or 0)
-        day_stats[d]["carbs"] += float(row.carbs or 0)
-        day_stats[d]["fat"] += float(row.fat or 0)
-
-    n_days = len(day_stats)
-    avg_cal = sum(v["calories"] for v in day_stats.values()) / n_days
-    avg_pro = sum(v["protein"] for v in day_stats.values()) / n_days
-    avg_carb = sum(v["carbs"] for v in day_stats.values()) / n_days
-    avg_fat = sum(v["fat"] for v in day_stats.values()) / n_days
-
-    # ── สร้าง Prompt สำหรับ MedGemma ──────────────────────────────────────
-    stats_text = "\n".join(
-        f"  {d}: แคลอรี {v['calories']:.0f} kcal | โปรตีน {v['protein']:.1f}g | คาร์บ {v['carbs']:.1f}g | ไขมัน {v['fat']:.1f}g"
-        for d, v in sorted(day_stats.items())
-    )
-    prompt = f"""คุณคือ NutriSmart AI ผู้เชี่ยวชาญด้านโภชนาการ
-กรุณาอ่านข้อมูลการบริโภคอาหารใน 7 วันที่ผ่านมาของผู้ใช้แล้วเขียนสรุปสุขภาพเป็นภาษาไทย
-
-ข้อมูลสถิติรายวัน:
-{stats_text}
-
-สรุป (เฉลี่ยต่อวัน):
-  แคลอรี {avg_cal:.0f} kcal | โปรตีน {avg_pro:.1f}g | คาร์บ {avg_carb:.1f}g | ไขมัน {avg_fat:.1f}g
-
-ค่าอ้างอิง Thai RDI: แคลอรี 2,000 kcal | โปรตีน 50g | คาร์บ 300g | ไขมัน 65g
-
-กรุณาเขียนสรุปสุขภาพ 2-3 ประโยค สั้นกระชับ เข้าใจง่าย มีคำแนะนำเชิงบวก และลงท้ายด้วยประโยคกำลังใจ
-ห้ามใส่หัวข้อหรือสัญลักษณ์ Markdown ตอบเป็นข้อความธรรมดาเท่านั้น"""
-
-    # ── เรียก MedGemma ────────────────────────────────────────────────────
-    try:
-        ai_summary = await call_medgemma(prompt)
-        # ตัดให้ไม่ยาวเกินไป
-        ai_summary = ai_summary.strip().replace("**", "").replace("##", "").strip()
-        if len(ai_summary) > 300:
-            ai_summary = ai_summary[:297] + "..."
-    except HTTPException:
-        ai_summary = (
-            f"สัปดาห์นี้คุณทานแคลอรีเฉลี่ย {avg_cal:.0f} kcal/วัน "
-            f"โปรตีน {avg_pro:.0f}g และไขมัน {avg_fat:.0f}g ต่อวัน "
-            "ยังคงรักษาพฤติกรรมการกินที่ดีต่อไปนะคะ 💪"
-        )
-
-    notif = insert_notification(
-        user_id=user_id,
-        category="ai",
-        priority="medium",
-        title="รายงานสุขภาพประจำสัปดาห์ 📊",
-        body=ai_summary,
-        emoji="📊",
-    )
-
-    # ── ส่ง LINE Push ควบคู่กับการบันทึกในเว็บ (Background) ────────────────
-    background_tasks.add_task(
-        send_line_if_available,
-        user_id=user_id,
-        title="สรุปสุขภาพประจำสัปดาห์จาก AI ✨",
-        body=ai_summary,
-        emoji="📊",
-        category="ai",
-        priority="medium",
-    )
-
-    return TriggerSummaryResponse(
-        inserted=True,
-        notification_id=notif.id,
-        title=notif.title,
-        body=notif.body,
-    )
+    return {"success": True, "devicesNotified": sent_count}

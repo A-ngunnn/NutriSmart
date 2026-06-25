@@ -11,13 +11,16 @@ from dotenv import load_dotenv
 # โหลด Environment Variables ทันทีตั้งแต่เริ่มระบบ
 load_dotenv()
 
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from config import get_settings
 from services.rag_service import load_knowledge
 from services.storage_service import initialize_storage
+from services import notification_scheduler
 from routers import analyze, chat
 from routers import dashboard, profile, logs, health_api, notifications, food_search
 
@@ -39,7 +42,10 @@ async def lifespan(app: FastAPI):
     seeded = seed_global_foods()
     if seeded > 0:
         print(f"[OK] Seeded {seeded} items into global food catalog")
+    notification_scheduler.start()
+    print("[OK] Notification scheduler started")
     yield
+    notification_scheduler.stop()
     print("[STOP] NutriSmart Backend shutting down.")
 
 
@@ -52,19 +58,67 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS – allow frontend dev server
-origins = [
-    "https://nutri-smart-gray.vercel.app",
-    "http://localhost:3000"
-]
-
+# CORS – origins configurable via CORS_ORIGINS env var
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_logger = logging.getLogger("nutrismart.main")
+
+
+def _cors_headers(request: Request) -> dict:
+    """Return CORS headers matching the request origin (if allowed).
+
+    Starlette's CORSMiddleware only wraps the router — responses produced by
+    @app.exception_handler() escape before the middleware can inject the
+    Access-Control-Allow-Origin header, so the browser blocks them with a
+    CORS error even though the allowed-origins list is correct.  We add the
+    header ourselves here as a safety net.
+    """
+    origin = request.headers.get("origin", "")
+    allowed = settings.cors_origins_list
+    if origin in allowed or "*" in allowed:
+        return {"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true"}
+    return {}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=_cors_headers(request),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    import traceback
+    with open("error_log.txt", "a", encoding="utf-8") as f:
+        f.write(traceback.format_exc() + "\n\n")
+    _logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers=_cors_headers(request),
+    )
+
+from fastapi.exceptions import RequestValidationError, ResponseValidationError
+
+@app.exception_handler(ResponseValidationError)
+async def response_validation_exception_handler(request: Request, exc: ResponseValidationError):
+    import traceback
+    with open("error_log.txt", "a", encoding="utf-8") as f:
+        f.write("RESPONSE VALIDATION ERROR:\n" + str(exc.errors()) + "\n\n")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Response validation error", "errors": exc.errors()},
+        headers=_cors_headers(request),
+    )
 
 # ── Register routers ────────────────────────────────────────────────────────
 app.include_router(analyze.router)
@@ -83,19 +137,6 @@ app.include_router(food_search.router)
 async def health_check():
     return {"status": "ok", "service": "NutriSmart AI Backend"}
 
-
-@app.get("/api/test-ai")
-async def test_ai_keys():
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    openrouter_key = os.getenv("OPENROUTER_API_KEY")
-    
-    return {
-        "status": "ok",
-        "GEMINI_API_KEY_FOUND": bool(gemini_key),
-        "GEMINI_API_KEY_PREVIEW": f"{gemini_key[:4]}..." if gemini_key and len(gemini_key) > 4 else "Not Configured",
-        "OPENROUTER_API_KEY_FOUND": bool(openrouter_key),
-        "OPENROUTER_API_KEY_PREVIEW": f"{openrouter_key[:4]}..." if openrouter_key and len(openrouter_key) > 4 else "Not Configured"
-    }
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 

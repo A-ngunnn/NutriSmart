@@ -8,7 +8,7 @@ import {
   PRIORITY_WEIGHT,
 } from "./notification.types";
 
-import { FINAL_BACKEND_URL, fetchWithAuth } from "../backend-api";
+import { FINAL_BACKEND_URL, fetchWithAuth, reportUnauthorized } from "../backend-api";
 
 // ─── State Shape ──────────────────────────────────────────────────────────────
 
@@ -106,7 +106,12 @@ export function useNotifications(userId?: string): UseNotificationsReturn {
         cache: "no-store",
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // session ที่ค้างใน localStorage อาจเสีย (เช่นถูกลบฝั่ง Supabase ไปแล้ว) ทำให้ทุก request
+        // 401 ซ้ำไปเรื่อยๆ ไม่มีที่สิ้นสุดถ้าไม่มีจุดไหนสั่ง sign-out — สั่งออกทันทีให้ login ใหม่ได้
+        if (res.status === 401) void reportUnauthorized();
+        throw new Error(`HTTP ${res.status}`);
+      }
 
       const rows: BackendNotification[] = await res.json();
       setState({

@@ -16,7 +16,17 @@ class Settings(BaseSettings):
     medgemma_fallback_model: str = "gpt-4o-mini"
     storage_db: str = str(Path(__file__).resolve().parents[1] / "backend_data" / "nutrismart.db")
     database_url: str | None = None
-    line_channel_access_token: str = ""  # LINE Messaging API — set LINE_CHANNEL_ACCESS_TOKEN in .env
+    # Firebase Cloud Messaging (Web Push) — แทนที่ LINE Messaging API เดิม
+    # ใส่อย่างใดอย่างหนึ่ง:
+    #   FIREBASE_SERVICE_ACCOUNT_JSON = เนื้อ JSON ทั้งไฟล์แบบ string เดียว (สะดวกตอน deploy บน Render/Vercel)
+    #   FIREBASE_SERVICE_ACCOUNT_PATH = path ไปยังไฟล์ serviceAccountKey.json (สะดวกตอน dev ในเครื่อง)
+    firebase_service_account_json: str = ""
+    firebase_service_account_path: str = ""
+    cors_origins: str = "https://nutri-smart-gray.vercel.app,http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     class Config:
         env_file = ".env"

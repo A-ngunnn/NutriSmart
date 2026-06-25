@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { TomatoMascot, ErrorScreen } from "@/components/ui/error-mascots";
 
 export default function Error({
   error,
@@ -9,45 +11,32 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     // Log ข้อผิดพลาดเพื่อให้ทีมพัฒนาตรวจสอบได้
     console.error("[NutriSmart] Unhandled runtime error:", error);
   }, [error]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 p-8 text-center bg-background">
-      <div className="flex flex-col items-center gap-4 max-w-md">
-        <div className="text-6xl animate-bounce">⚠️</div>
-        <h2 className="text-2xl font-bold text-foreground tracking-tight">
-          เกิดข้อผิดพลาดบางอย่าง
-        </h2>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {error.message
-            ? error.message
-            : "ระบบเกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาลองใหม่หรือรีเฟรชหน้าจอ"}
+    <>
+      <ErrorScreen
+        mascot={<TomatoMascot />}
+        badgeText="Error 500"
+        badgeBg="#FFF3E0"
+        badgeColor="#F57C00"
+        title="หัวหมุนเลยอ่ะ~ 😵‍💫"
+        subtitle={error.message || "มะเขือเทศวิงเวียนหัวมาก ทีมงานรีบมาช่วยแล้วนะ!"}
+        actions={[
+          { label: "🔄 ลองใหม่นะ!", variant: "orange", onClick: reset },
+          { label: "🏠 กลับหน้าหลัก", variant: "secondary", onClick: () => router.push("/dashboard") },
+        ]}
+      />
+      {error.digest && (
+        <p className="text-center text-xs text-muted-foreground/60 font-mono -mt-4 pb-4">
+          Error ID: {error.digest}
         </p>
-        {error.digest && (
-          <p className="text-xs text-muted-foreground/60 font-mono">
-            Error ID: {error.digest}
-          </p>
-        )}
-        <div className="flex gap-3 mt-2">
-          <button
-            onClick={reset}
-            className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium
-                       hover:opacity-90 active:scale-95 transition-all duration-150 shadow-md"
-          >
-            🔄 ลองใหม่อีกครั้ง
-          </button>
-          <button
-            onClick={() => (window.location.href = "/dashboard")}
-            className="px-6 py-2.5 rounded-xl border border-border text-sm font-medium
-                       hover:bg-accent active:scale-95 transition-all duration-150"
-          >
-            🏠 กลับหน้าหลัก
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }

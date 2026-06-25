@@ -1,10 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Leaf, Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { NutriSmartWordmark } from "@/components/ui/nutrismart-wordmark"
 
 interface AuthPagesProps {
   mode: "login" | "register"
@@ -102,11 +103,11 @@ export default function AuthPages({ mode, onSuccess, onNavigate }: AuthPagesProp
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
       {/* Logo */}
       <div className="flex items-center gap-2 mb-8">
-        <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
-          <Leaf className="w-5 h-5 text-white" />
-        </div>
+        <img src="/icons/Logo.png" alt="NutriSmart" className="w-10 h-10 object-contain" />
         <div>
-          <p className="font-extrabold text-lg text-foreground leading-none">NutriSmart</p>
+          <p className="text-lg leading-none">
+            <NutriSmartWordmark />
+          </p>
           <p className="text-[10px] text-primary font-semibold tracking-widest uppercase">Med AI Engine</p>
         </div>
       </div>

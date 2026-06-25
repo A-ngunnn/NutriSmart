@@ -8,12 +8,16 @@ logger = logging.getLogger("nutrismart.database")
 
 settings = get_settings()
 
-# ใช้ pool_pre_ping เพื่อตรวจสอบ connection ก่อนใช้งานทุกครั้ง
-# ป้องกัน connection หลุดแล้ว crash
+# Supabase Session-mode pooler caps at 15 concurrent connections.
+# Keep pool small: pool_size=3 + max_overflow=2 = 5 max, well under the limit.
+# pool_pre_ping validates connections before use (handles idle-disconnect).
+# pool_recycle drops connections older than 5 min to avoid stale sockets.
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
     pool_recycle=300,
+    pool_size=3,
+    max_overflow=2,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

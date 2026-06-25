@@ -22,5 +22,7 @@ class DashboardSummaryResponse(BaseModel):
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
-async def dashboard_summary(user_id: str = Depends(get_current_user)):
+def dashboard_summary(user_id: str = Depends(get_current_user)):
+    # `def` ธรรมดา (ไม่ใช่ async def) โดยตั้งใจ — get_dashboard_summary() เป็น sync/blocking
+    # SQLAlchemy call ถ้าเป็น async def แล้วเรียก sync ตรงๆ จะบล็อก event loop ทั้งตัว
     return get_dashboard_summary(user_id)

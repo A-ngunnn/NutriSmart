@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 460" width="100%" height="100%">
+  <defs>
+    <linearGradient id="lightBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FAFDFB"/>
+    </linearGradient>
+
+    <linearGradient id="carrotGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9100"/>
+      <stop offset="60%" stop-color="#FF3D00"/>
+      <stop offset="100%" stop-color="#EC407A"/>
+    </linearGradient>
+
+    <linearGradient id="leafGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4CAF50"/>
+      <stop offset="100%" stop-color="#81C784"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#FF3D00" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="460" rx="140" fill="url(#lightBg)" stroke="#E8F5E9" stroke-width="2"/>
+
+  <circle cx="256" cy="240" r="140" fill="none" stroke="url(#leafGrad)" stroke-width="2" stroke-dasharray="6 12" opacity="0.3" />
+
+  <g filter="url(#softShadow)" transform="translate(0, -10)">
+    <path d="M 256,130 C 230,80 256,40 256,40 C 256,40 282,80 256,130 Z" fill="url(#leafGrad)" />
+    <path d="M 240,125 C 200,90 210,50 210,50 C 210,50 245,80 240,125 Z" fill="#4CAF50" opacity="0.8" />
+    <path d="M 272,125 C 312,90 302,50 302,50 C 302,50 267,80 272,125 Z" fill="#81C784" opacity="0.8" />
+
+    <path d="M 256,120
+             C 180,120 160,200 180,280
+             C 195,340 235,400 256,410
+             C 277,400 317,340 332,280
+             C 352,200 332,120 256,120 Z"
+          fill="url(#carrotGrad)" />
+
+    <path d="M 200,200 Q 230,205 240,195" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.4"/>
+    <path d="M 312,240 Q 280,245 270,235" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.4"/>
+    <path d="M 210,290 Q 240,295 250,285" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.4"/>
+
+    <g transform="translate(256, 245)">
+      <path d="M 0,-40 C 0,-12 12,0 40,0 C 12,0 0,12 0,40 C 0,12 -12,0 -40,0 C -12,0 0,-12 0,-40 Z" fill="#FFFFFF" />
+      <circle cx="0" cy="0" r="5" fill="#FF8A65" />
+    </g>
+  </g>
+
+  <path d="M 140,160 C 140,150 144,146 154,146 C 144,146 140,142 140,132 C 140,142 136,146 126,146 C 136,146 140,150 140,160 Z" fill="#FF9100" opacity="0.6"/>
+  <path d="M 370,180 C 370,172 373,169 381,169 C 373,169 370,166 370,158 C 370,166 367,169 359,169 C 367,169 370,172 370,180 Z" fill="#4CAF50" opacity="0.6"/>
+</svg>
