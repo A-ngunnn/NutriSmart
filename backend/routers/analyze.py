@@ -113,9 +113,9 @@ async def analyze_image(
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="ไฟล์ที่อัปโหลดต้องเป็นรูปภาพ")
 
-    # เช็ก Rate Limit 10 ครั้งต่อวัน
-    if not check_and_log_api_usage(user_id, "/api/analyze/image", max_limit=10):
-        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาสแกนอาหารครบ 10 ครั้งของวันนี้แล้วค่ะ")
+    # เช็ก Rate Limit 3 ครั้งต่อวัน (คุมต้นทุน AI vision model ช่วงที่ยังใช้ free tier อยู่)
+    if not check_and_log_api_usage(user_id, "/api/analyze/image", max_limit=3):
+        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาสแกนอาหารครบ 3 ครั้งของวันนี้แล้วค่ะ")
 
     # Read and encode image
     image_bytes = await file.read()

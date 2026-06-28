@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bell, X, CheckCheck, Salad, Activity, Sparkles, AlertCircle } from "lucide-react";
 import {
   CATEGORY_CONFIG,
@@ -33,19 +34,26 @@ function NotificationItem({
   n,
   onRead,
   onDismiss,
+  onNavigate,
 }: {
   n: NutriNotification;
   onRead: (id: string) => void;
   onDismiss: (id: string) => void;
+  onNavigate: (href: string) => void;
 }) {
   const cfg = CATEGORY_CONFIG[n.category as NotificationCategory];
   const isUnread = n.status === "unread";
 
+  const handleClick = () => {
+    if (isUnread) onRead(n.id);
+    if (n.action) onNavigate(n.action.href);
+  };
+
   return (
     <div
-      onClick={() => isUnread && onRead(n.id)}
-      className={`group relative flex gap-3 px-4 py-3 transition-colors hover:bg-muted/50 ${
-        isUnread ? "bg-primary/5 cursor-pointer" : "cursor-default"
+      onClick={handleClick}
+      className={`group relative flex gap-3 px-4 py-3 transition-colors hover:bg-muted/50 cursor-pointer ${
+        isUnread ? "bg-primary/5" : ""
       }`}
     >
       <div
@@ -92,14 +100,9 @@ function NotificationItem({
             {cfg.label}
           </span>
           {n.action && (
-            <a
-              href={n.action.href}
-              onClick={(e) => e.stopPropagation()}
-              className="text-[11px] font-semibold ml-auto hover:underline"
-              style={{ color: cfg.color }}
-            >
+            <span className="text-[11px] font-semibold ml-auto" style={{ color: cfg.color }}>
               {n.action.label} →
-            </a>
+            </span>
           )}
         </div>
       </div>
@@ -108,18 +111,6 @@ function NotificationItem({
     </div>
   );
 }
-
-// ─── Category Filter Tabs ─────────────────────────────────────────────────────
-
-const CATEGORIES: (NotificationCategory | "all")[] = ["all", "daily", "goal", "ai", "system"];
-
-const CAT_LABELS: Record<string, string> = {
-  all: "ทั้งหมด",
-  daily: "กิจวัตร",
-  goal: "เป้าหมาย",
-  ai: "Nutri AI",
-  system: "ระบบ",
-};
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -138,13 +129,17 @@ export default function NotificationCenter({ initialUserId }: NotificationCenter
     markAllAsRead,
     dismiss,
     dismissAll,
-    filterByCategory,
-    activeCategory,
     refresh,
   } = useNotifications(initialUserId);
 
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const handleNavigate = (href: string) => {
+    setOpen(false);
+    router.push(href);
+  };
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -158,11 +153,24 @@ export default function NotificationCenter({ initialUserId }: NotificationCenter
 
   // เปิดดูแล้วถือว่าอ่านแล้ว — ไม่ต้องกดทีละรายการเอง หน่วงไว้นิดหน่อยให้ทันเห็นว่าอันไหนใหม่
   // ก่อนจุดจะหายไป (ไม่ใช่หายทันทีจนไม่รู้ว่าเมื่อกี้มีอะไรใหม่บ้าง)
+  //
+  // ⚠️ ห้ามผูก cleanup ไว้กับ `open` ตรงๆ — ถ้าผู้ใช้กดอ่านการแจ้งเตือนอันหนึ่งแล้วมันพาไปหน้าอื่นทันที
+  // (handleNavigate สั่ง setOpen(false) ทันทีตอนคลิก) ภายใน 1.5 วิ จะไป clearTimeout ทิ้งซะก่อน ทำให้
+  // รายการอื่นๆที่ยังไม่ได้กดไม่ถูก mark read เลย พอเปิดแผงใหม่อีกทีก็เห็นเด้งเหมือนเดิมไม่หายไปไหน
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!open || unreadCount === 0) return;
-    const timer = setTimeout(() => markAllAsRead(), 1500);
-    return () => clearTimeout(timer);
+    if (!open || unreadCount === 0 || markReadTimerRef.current) return;
+    markReadTimerRef.current = setTimeout(() => {
+      markAllAsRead();
+      markReadTimerRef.current = null;
+    }, 1500);
   }, [open, unreadCount, markAllAsRead]);
+
+  useEffect(() => {
+    return () => {
+      if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+    };
+  }, []);
 
   return (
     <div className="relative" ref={panelRef}>
@@ -206,30 +214,6 @@ export default function NotificationCenter({ initialUserId }: NotificationCenter
                   )}
                 </div>
               </div>
-
-              {/* Category tabs */}
-              <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-                {CATEGORIES.map((cat) => {
-                  const isActive = cat === "all" ? !activeCategory : activeCategory === cat;
-                  const color = cat === "all" ? "#1D9E75" : CATEGORY_CONFIG[cat as NotificationCategory].color;
-                  const bg =
-                    cat === "all" ? "#E6F7F2" : CATEGORY_CONFIG[cat as NotificationCategory].bgColor;
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => filterByCategory(cat === "all" ? undefined : (cat as NotificationCategory))}
-                      className="whitespace-nowrap text-xs px-3 py-1 rounded-full border transition-colors"
-                      style={
-                        isActive
-                          ? { borderColor: color, background: bg, color, fontWeight: 600 }
-                          : { borderColor: "transparent", background: "var(--muted)", color: "var(--muted-foreground)" }
-                      }
-                    >
-                      {CAT_LABELS[cat]}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
             {/* List */}
@@ -257,7 +241,7 @@ export default function NotificationCenter({ initialUserId }: NotificationCenter
                 </div>
               ) : (
                 notifications.map((n) => (
-                  <NotificationItem key={n.id} n={n} onRead={markAsRead} onDismiss={dismiss} />
+                  <NotificationItem key={n.id} n={n} onRead={markAsRead} onDismiss={dismiss} onNavigate={handleNavigate} />
                 ))
               )}
             </div>

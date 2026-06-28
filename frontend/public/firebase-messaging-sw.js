@@ -10,7 +10,7 @@ importScripts("https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js
 importScripts("https://www.gstatic.com/firebasejs/10.13.1/firebase-messaging-compat.js")
 
 firebase.initializeApp({
-  apiKey: "AIzaSyAb7o9N3gqZsoIHfiXRO6h0Ge1fT3eS1ss",
+  apiKey: "AIzaSyBj0Rjp3R4vYL0JqXfMCgv_kEMV6blpMck",
   authDomain: "nutrismart-web.firebaseapp.com",
   projectId: "nutrismart-web",
   storageBucket: "nutrismart-web.firebasestorage.app",

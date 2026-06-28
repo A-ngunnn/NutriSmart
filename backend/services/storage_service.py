@@ -717,6 +717,55 @@ def insert_scan_record(user_id: Optional[str], scan_data: Dict[str, Any], bg_tas
     return _model_to_dict(new_record)
 
 
+def upsert_review(user_id: str, name: str, rating: int, comment: str, avatar_url: Optional[str] = None) -> Dict[str, Any]:
+    """1 user มีรีวิวได้อันเดียว — ถ้าเคยส่งแล้วให้แก้ของเดิมแทนสร้างซ้ำ (กันคนกดส่งซ้ำๆเพื่อยึดพื้นที่หน้า landing page)"""
+    now = datetime.utcnow().isoformat()
+    with SessionLocal() as db:
+        existing = db.query(models.Review).filter(models.Review.user_id == user_id).first()
+        if existing:
+            existing.name = name
+            existing.rating = rating
+            existing.comment = comment
+            existing.avatar_url = avatar_url
+            existing.created_at = now
+            db.commit()
+            db.refresh(existing)
+            return _model_to_dict(existing)
+
+        new_review = models.Review(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            name=name,
+            rating=rating,
+            comment=comment,
+            avatar_url=avatar_url,
+            created_at=now,
+        )
+        db.add(new_review)
+        db.commit()
+        db.refresh(new_review)
+        return _model_to_dict(new_review)
+
+
+def get_public_reviews(limit: int = 9) -> List[Dict[str, Any]]:
+    """รีวิว 4-5 ดาวล่าสุด ใช้โชว์บน landing page เท่านั้น — ไม่ต้องมี admin คัดเลือกมือ"""
+    with SessionLocal() as db:
+        rows = (
+            db.query(models.Review)
+            .filter(models.Review.rating >= 4)
+            .order_by(models.Review.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [_model_to_dict(row) for row in rows]
+
+
+def get_my_review(user_id: str) -> Optional[Dict[str, Any]]:
+    with SessionLocal() as db:
+        row = db.query(models.Review).filter(models.Review.user_id == user_id).first()
+        return _model_to_dict(row) if row else None
+
+
 def insert_notification(
     user_id: str,
     category: str,

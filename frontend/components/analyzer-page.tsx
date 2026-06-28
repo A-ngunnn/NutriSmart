@@ -405,9 +405,12 @@ export default function AnalyzerPage() {
       // ถัดไปบันทึกซ้ำเป็นสแกนที่สองของรูปเดียวกัน (ถ้าผู้ใช้แก้ไขค่าเอง flag นี้จะถูกล้างใน set())
       setCameFromOcr(true)
       setCapturedImage(null)
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      alert("ไม่สามารถอ่านข้อมูลจากภาพได้ กรุณาลองใหม่")
+      // โควตาสแกนรูปเต็ม (429) บอก error.detail จริงจาก backend ตรงๆ ไม่งั้นจะดูเหมือนแค่สแกนพัง
+      // ทั้งที่จริงต้องรอวันถัดไปถึงจะสแกนได้ใหม่
+      const isQuota = typeof err?.message === "string" && err.message.includes("โควตา")
+      alert(isQuota ? err.message : "ไม่สามารถอ่านข้อมูลจากภาพได้ กรุณาลองใหม่")
     } finally {
       setScanning(false)
     }
@@ -492,7 +495,7 @@ export default function AnalyzerPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">ชื่อผลิตภัณฑ์ / ชื่ออาหาร</Label>
                   <Input
-                    placeholder="เช่น นมเจดพาสเจอร์ไรส์ ตราเด็กดี"
+                    placeholder="เช่น นมจืดพาสเจอร์ไรส์ ตราเด็กดี"
                     value={form.productName}
                     onChange={(e) => set("productName", e.target.value)}
                     className="h-11"

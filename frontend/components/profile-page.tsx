@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Edit2, Check, Ruler, Weight, ChevronRight, ShieldCheck, Bell, HelpCircle, FileText, Flame, Dumbbell, TrendingDown, TrendingUp, Minus, Activity, Camera, X, LogOut, User } from 'lucide-react'
+import { Edit2, Check, Ruler, Weight, ChevronRight, ShieldCheck, Bell, HelpCircle, FileText, Flame, Dumbbell, TrendingDown, TrendingUp, Minus, Activity, Camera, X, LogOut, User, Star } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -439,6 +439,7 @@ export default function ProfileTab({ initialData, onSave, onAvatarChange }: Prof
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-5 pt-4 pb-2">การตั้งค่า</p>
             {[
               { icon: <Bell size={16} className="text-orange-500" />, label: 'การแจ้งเตือน', desc: 'จัดการการแจ้งเตือนทั้งหมด', href: '/profile/notifications' },
+              { icon: <Star size={16} className="text-amber-500" />, label: 'ให้คะแนนแอป', desc: 'แชร์ความคิดเห็นการใช้งานของคุณ', href: '/profile/review' },
               { icon: <ShieldCheck size={16} className="text-green-600" />, label: 'ความเป็นส่วนตัว', desc: 'ข้อมูลและการอนุญาต', href: '/profile/privacy' },
               { icon: <HelpCircle size={16} className="text-blue-500" />, label: 'ช่วยเหลือ & คำถามที่พบบ่อย', desc: 'คู่มือการใช้งาน', href: '/profile/help' },
               { icon: <FileText size={16} className="text-muted-foreground" />, label: 'นโยบายและเงื่อนไข', desc: 'Terms & Privacy Policy', href: '/profile/terms' },

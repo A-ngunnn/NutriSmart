@@ -14,6 +14,7 @@ import LoadingScreen from "@/components/ui/loading-screen"
 import { NutriSmartWordmark } from "@/components/ui/nutrismart-wordmark"
 import { AvocadoMascot, ErrorScreen } from "@/components/ui/error-mascots"
 import { useOnlineStatus } from "@/lib/use-online-status"
+import ReviewPromptModal from "@/components/review-prompt-modal"
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "หน้าหลัก", icon: Home, href: "/dashboard", desc: "ภาพรวมประจำวัน" },
@@ -49,7 +50,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setUserId(undefined)
         lastFetchedUserId.current = undefined
         clearState()
-        setLoading(false)
+        // ไม่ setLoading(false) ตรงนี้ — ถ้าปล่อยให้ loading=false ก่อน router.push("/") เปลี่ยนหน้า
+        // เสร็จจริง (เป็น async ไม่ใช่ instant) จะมีเฟรมสั้นๆที่ shell เต็มรูปแบบ (รวม NotificationCenter)
+        // render ออกมาทั้งที่ยังไม่มี session ทำให้ยิง /api/notifications แบบไม่มี token ได้ 401 เปล่าๆ
+        // ปล่อยให้ค้างที่ LoadingScreen ไปจนกว่า component นี้จะ unmount ตอน redirect เสร็จจริงดีกว่า
         router.push("/")
         return
       }
@@ -289,6 +293,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <ChatBot />
+      <ReviewPromptModal />
     </div>
   )
 }

@@ -104,10 +104,18 @@ export default function ChatBot() {
       // ⚡ ส่งทั้งข้อความ ประวัติ และข้อมูลโปรไฟล์ผู้ใช้ไปประมวลผลคำพูดตามเกณฑ์ที่หลังบ้าน
       const reply = await chatWithBackend(text, history, userProfile)
       setMessages((prev) => [...prev, { id: Date.now(), role: 'bot', text: reply, time: getTime() }])
-    } catch {
+    } catch (err: any) {
+      // โควตาแชทเต็ม (429) บอก error.detail จริงจาก backend ตรงๆ ไม่งั้นคนจะกดพิมพ์ซ้ำเรื่อยๆ
+      // ด้วยข้อความ "ลองใหม่" ทั้งที่ติดโควตาอยู่ ไม่มีทางสำเร็จจนกว่าจะถึงวันถัดไป
+      const isQuota = typeof err?.message === 'string' && err.message.includes('โควตา')
       setMessages((prev) => [
         ...prev,
-        { id: Date.now(), role: 'bot', text: 'เฮ้ยแก ระบบแอบรวนนิดหน่อยว่ะ ลองพิมพ์ใหม่อีกทีดิวะ! 🙏', time: getTime() },
+        {
+          id: Date.now(),
+          role: 'bot',
+          text: isQuota ? err.message : 'เฮ้ยแก ระบบแอบรวนนิดหน่อยว่ะ ลองพิมพ์ใหม่อีกทีดิวะ! 🙏',
+          time: getTime(),
+        },
       ])
     } finally {
       setTyping(false)
