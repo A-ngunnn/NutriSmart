@@ -109,18 +109,6 @@ function NotificationItem({
   );
 }
 
-// ─── Category Filter Tabs ─────────────────────────────────────────────────────
-
-const CATEGORIES: (NotificationCategory | "all")[] = ["all", "daily", "goal", "ai", "system"];
-
-const CAT_LABELS: Record<string, string> = {
-  all: "ทั้งหมด",
-  daily: "กิจวัตร",
-  goal: "เป้าหมาย",
-  ai: "Nutri AI",
-  system: "ระบบ",
-};
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 interface NotificationCenterProps {
@@ -138,8 +126,6 @@ export default function NotificationCenter({ initialUserId }: NotificationCenter
     markAllAsRead,
     dismiss,
     dismissAll,
-    filterByCategory,
-    activeCategory,
     refresh,
   } = useNotifications(initialUserId);
 
@@ -205,30 +191,6 @@ export default function NotificationCenter({ initialUserId }: NotificationCenter
                     </button>
                   )}
                 </div>
-              </div>
-
-              {/* Category tabs */}
-              <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-                {CATEGORIES.map((cat) => {
-                  const isActive = cat === "all" ? !activeCategory : activeCategory === cat;
-                  const color = cat === "all" ? "#1D9E75" : CATEGORY_CONFIG[cat as NotificationCategory].color;
-                  const bg =
-                    cat === "all" ? "#E6F7F2" : CATEGORY_CONFIG[cat as NotificationCategory].bgColor;
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => filterByCategory(cat === "all" ? undefined : (cat as NotificationCategory))}
-                      className="whitespace-nowrap text-xs px-3 py-1 rounded-full border transition-colors"
-                      style={
-                        isActive
-                          ? { borderColor: color, background: bg, color, fontWeight: 600 }
-                          : { borderColor: "transparent", background: "var(--muted)", color: "var(--muted-foreground)" }
-                      }
-                    >
-                      {CAT_LABELS[cat]}
-                    </button>
-                  );
-                })}
               </div>
             </div>
 
