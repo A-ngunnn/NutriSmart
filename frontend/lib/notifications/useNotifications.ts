@@ -5,7 +5,6 @@ import {
   NutriNotification,
   NotificationCategory,
   NotificationStatus,
-  PRIORITY_WEIGHT,
 } from "./notification.types";
 
 import { FINAL_BACKEND_URL, fetchWithAuth, reportUnauthorized } from "../backend-api";
@@ -62,6 +61,16 @@ interface BackendNotification {
   read_at?: string;
 }
 
+// แจ้งเตือนจริงจาก backend ไม่มี action/href ติดมาด้วย (ต่างจาก mock ข้างบนที่ใส่ href ปลอมๆ
+// แบบ "/log/meal" ซึ่งไม่มีหน้านี้อยู่จริงในแอปด้วยซ้ำ) ทำให้กดแจ้งเตือนแล้วไม่ไปไหนเลย —
+// เลย derive ปลายทางจาก category แทน ให้ตรงกับหน้าจริงที่มีอยู่ในแอป
+const CATEGORY_ACTION: Record<NotificationCategory, { label: string; href: string }> = {
+  daily: { label: "ไปบันทึกอาหาร", href: "/logs" },
+  goal: { label: "ดูสรุปวันนี้", href: "/dashboard" },
+  ai: { label: "ดูสุขภาพของฉัน", href: "/health" },
+  system: { label: "ไปโปรไฟล์", href: "/profile" },
+};
+
 function mapBackend(row: BackendNotification): NutriNotification {
   return {
     id: row.id,
@@ -73,6 +82,7 @@ function mapBackend(row: BackendNotification): NutriNotification {
     emoji: row.emoji,
     createdAt: row.created_at,
     readAt: row.read_at,
+    action: CATEGORY_ACTION[row.category],
   };
 }
 
@@ -146,19 +156,19 @@ export function useNotifications(userId?: string): UseNotificationsReturn {
       return true;
     });
 
-    return visible.sort((a, b) => {
-      // 1. unread before read
-      if (a.status !== b.status) {
-        return a.status === "unread" ? -1 : 1;
-      }
-      // 2. higher priority first
-      const priorityDiff =
-        PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
-      if (priorityDiff !== 0) return priorityDiff;
-      // 3. newest first
-      return (
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+    // เรียงตามเวลาล่าสุดอย่างเดียว — เดิมเอา unread/priority ขึ้นก่อนวันที่ ทำให้รายการเก่าที่ยัง
+    // ไม่อ่านโผล่ขึ้นไปอยู่เหนือรายการใหม่ที่อ่านแล้ว ดูเหมือนลำดับสุ่มไม่ตรงเวลาจริง
+    const sorted = visible.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    // ข้อความหัวข้อเดียวกัน (เช่นแจ้งเตือนซ้ำแบบรายวัน "โซเดียมเกินเกณฑ์!" ที่ส่งทุกวันที่ทำซ้ำ)
+    // เก็บไว้แค่อันล่าสุดพอ ไม่ต้องโชว์ซ้ำๆทุกวันให้รก — ของเก่ายังอยู่ใน DB ไม่ได้ลบจริง
+    const seenTitles = new Set<string>();
+    return sorted.filter((n) => {
+      if (seenTitles.has(n.title)) return false;
+      seenTitles.add(n.title);
+      return true;
     });
   }, [state.items, activeCategory]);
 

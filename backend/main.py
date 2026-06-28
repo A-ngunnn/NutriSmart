@@ -22,7 +22,7 @@ from services.rag_service import load_knowledge
 from services.storage_service import initialize_storage
 from services import notification_scheduler
 from routers import analyze, chat
-from routers import dashboard, profile, logs, health_api, notifications, food_search
+from routers import dashboard, profile, logs, health_api, notifications, food_search, reviews
 
 settings = get_settings()
 
@@ -129,6 +129,7 @@ app.include_router(logs.router)
 app.include_router(health_api.router)
 app.include_router(notifications.router)
 app.include_router(food_search.router)
+app.include_router(reviews.router)
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

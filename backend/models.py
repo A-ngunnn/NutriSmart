@@ -116,6 +116,18 @@ class ApiUsageLog(Base):
     created_at = Column(String, nullable=False)
 
 
+class Review(Base):
+    """รีวิวแอปจากผู้ใช้จริง — ผ่านฟอร์มในแอป (ไม่ใช่ของปลอม/mockup) ใช้แสดงบน landing page"""
+    __tablename__ = "reviews"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, index=True, nullable=False)
+    name = Column(String, nullable=False)        # ชื่อที่จะโชว์คู่รีวิว (ผู้ใช้กำหนดเอง ไม่ใช้ชื่อจริงในโปรไฟล์ตรงๆ เพื่อความเป็นส่วนตัว)
+    rating = Column(Integer, nullable=False)     # 1-5
+    comment = Column(String, nullable=False)
+    avatar_url = Column(String, nullable=True)   # โชว์เฉพาะถ้าผู้ใช้กดยินยอมเปิดเผยรูปตอนส่งรีวิว (opt-in เท่านั้น)
+    created_at = Column(String, nullable=False)
+
+
 class GlobalFoodItem(Base):
     """
     ตารางอาหารส่วนกลาง — เก็บค่าเฉลี่ยที่ AI เคยวิเคราะห์ไว้แล้ว ใช้เป็นคลังหา Autocomplete แทน AI

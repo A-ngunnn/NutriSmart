@@ -548,6 +548,40 @@ export async function deleteWaterLog(entryId: string, userId?: string): Promise<
   }
 }
 
+// ── Reviews ───────────────────────────────────────────────────────────────────
+
+export interface Review {
+  id: string;
+  name: string;
+  rating: number;
+  comment: string;
+  avatar_url?: string | null;
+  created_at: string;
+}
+
+/** ไม่ต้อง login — landing page เรียกก่อนผู้ใช้ sign in เลยใช้ fetch ตรงๆไม่ผ่าน fetchWithAuth */
+export async function fetchPublicReviews(): Promise<Review[]> {
+  const response = await fetch(`${FINAL_BACKEND_URL}/api/reviews/public`, { cache: "no-store" });
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function fetchMyReview(): Promise<Review | null> {
+  const response = await fetchWithAuth(`${FINAL_BACKEND_URL}/api/reviews/me`);
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => null);
+  return data ?? null;
+}
+
+export async function submitReview(data: { name: string; rating: number; comment: string; avatarUrl?: string | null }): Promise<Review> {
+  const response = await fetchWithAuth(`${FINAL_BACKEND_URL}/api/reviews`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return parseJson<Review>(response);
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function fetchHealthStatus(userId?: string): Promise<HealthStatus> {

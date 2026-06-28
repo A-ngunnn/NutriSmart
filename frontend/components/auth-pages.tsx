@@ -22,6 +22,8 @@ export default function AuthPages({ mode, onSuccess, onNavigate }: AuthPagesProp
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -94,6 +96,29 @@ export default function AuthPages({ mode, onSuccess, onNavigate }: AuthPagesProp
       setError(displayError || "เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail) {
+      setError("กรอกอีเมลของคุณก่อนนะ แล้วกด \"ลืมรหัสผ่าน?\" อีกครั้ง")
+      return
+    }
+    setError(null)
+    setResetLoading(true)
+    try {
+      const supabase = createClient()
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (resetError) throw resetError
+      setResetSent(true)
+    } catch (err: any) {
+      console.error(err)
+      setError(err.message || "ส่งลิงก์รีเซ็ตรหัสผ่านไม่สำเร็จ ลองใหม่อีกครั้ง")
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -185,9 +210,20 @@ export default function AuthPages({ mode, onSuccess, onNavigate }: AuthPagesProp
 
           {isLogin && (
             <div className="text-right">
-              <button type="button" className="text-xs text-primary hover:underline" disabled={loading}>
-                ลืมรหัสผ่าน?
-              </button>
+              {resetSent ? (
+                <span className="text-xs text-primary font-medium">
+                  ส่งลิงก์รีเซ็ตรหัสผ่านไปที่อีเมลแล้ว เช็คอินบ็อกซ์นะ 📩
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={loading || resetLoading}
+                  className="text-xs text-primary hover:underline disabled:opacity-50"
+                >
+                  {resetLoading ? "กำลังส่งลิงก์..." : "ลืมรหัสผ่าน?"}
+                </button>
+              )}
             </div>
           )}
 

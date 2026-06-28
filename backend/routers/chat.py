@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services.ai_service import chat
+from services.storage_service import check_and_log_api_usage
 from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
@@ -36,6 +37,10 @@ async def nutri_chat(body: ChatRequest, user_id: str = Depends(get_current_user)
     """Send a message to NutriSmart AI chatbot (RAG-enhanced)."""
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="ข้อความต้องไม่เป็นค่าว่าง")
+
+    # เช็ก Rate Limit 20 ข้อความต่อวัน (คุมต้นทุน AI ช่วงที่ยังใช้ free tier อยู่)
+    if not check_and_log_api_usage(user_id, "/api/chat", max_limit=20):
+        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาแชทครบ 20 ข้อความของวันนี้แล้วค่ะ")
 
     try:
         history_dicts = None

@@ -23,6 +23,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+backend/error_log.txt
 
 # Environment Variables & Secrets (คีย์ลับระบบ ห้ามเอาขึ้นเด็ดขาด)
 .env
