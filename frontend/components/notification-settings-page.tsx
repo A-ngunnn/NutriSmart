@@ -3,13 +3,9 @@
 import { useEffect, useState } from 'react'
 import { Switch } from '@/components/ui/switch'
 import SettingsBackHeader from '@/components/settings-back-header'
-import {
-  registerFcmToken, unregisterFcmToken, testPushNotification,
-  triggerWeeklySummary, triggerMonthlySummary, triggerYearlySummary, triggerMealReminder,
-  triggerSodiumGoodDay,
-} from '@/lib/backend-api'
+import { registerFcmToken, unregisterFcmToken, testPushNotification } from '@/lib/backend-api'
 import { requestNotificationPermission, getNotificationPermissionStatus } from '@/lib/firebase'
-import { BellRing, Loader2, CheckCircle2, XCircle, CalendarRange } from 'lucide-react'
+import { BellRing, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 
 type NotificationPrefs = {
   pushEnabled: boolean
@@ -123,36 +119,6 @@ export default function NotificationSettingsPage() {
     }
   }
 
-  // ── ทดสอบสรุปรายสัปดาห์/เดือน/ปี + แจ้งเตือนตามจิกให้อัปเดตมื้ออาหาร ──
-  // ของจริงมีเงื่อนไขเวลา (เช่นสรุปรายสัปดาห์ส่งทุกวันจันทร์เท่านั้น) กว่าจะถึงรอบจริงอาจรอนาน
-  // ปุ่มนี้เรียก endpoint เดียวกันแต่ข้ามเงื่อนไขเวลา ให้เห็นผลทันทีว่าฟีเจอร์ทำงานจริง
-  const [summaryLoading, setSummaryLoading] = useState<string | null>(null)
-  const [summaryMsg, setSummaryMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  const handleTestSummary = async (key: string, fn: () => Promise<{ inserted: boolean; title: string }>) => {
-    setSummaryLoading(key)
-    setSummaryMsg(null)
-    try {
-      const result = await fn()
-      setSummaryMsg({
-        type: 'success',
-        text: result.inserted ? `ส่งแล้ว: "${result.title}" — เช็คที่กระดิ่งแจ้งเตือนได้เลย` : 'วันนี้บันทึกข้อมูลไปแล้ว เลยไม่ต้องส่งเตือนซ้ำ (กดปุ่มอื่นเพื่อทดสอบได้)',
-      })
-    } catch (err) {
-      setSummaryMsg({ type: 'error', text: err instanceof Error ? err.message : 'ทดสอบไม่สำเร็จ' })
-    } finally {
-      setSummaryLoading(null)
-    }
-  }
-
-  const SUMMARY_TESTS = [
-    { key: 'weekly', label: 'สรุปรายสัปดาห์', fn: triggerWeeklySummary },
-    { key: 'monthly', label: 'สรุปรายเดือน', fn: triggerMonthlySummary },
-    { key: 'yearly', label: 'สรุปรายปี', fn: triggerYearlySummary },
-    { key: 'reminder', label: 'เตือนอัปเดตมื้ออาหาร', fn: triggerMealReminder },
-    { key: 'sodium-good', label: 'ชม: คุมโซเดียมได้ดี', fn: triggerSodiumGoodDay },
-  ]
-
   return (
     <div className="p-4 space-y-5 lg:space-y-6 pb-24 max-w-2xl lg:max-w-3xl mx-auto">
       <SettingsBackHeader title="การแจ้งเตือน" subtitle="จัดการการแจ้งเตือนทั้งหมด" />
@@ -241,42 +207,6 @@ export default function NotificationSettingsPage() {
         </div>
       </div>
 
-      {/* ── ทดสอบรายงานสรุป & เตือนอัปเดตมื้ออาหาร ── */}
-      <div className="bg-card rounded-3xl shadow-sm border border-border overflow-hidden">
-        <div className="flex items-center gap-3 px-5 pt-4">
-          <div className="w-9 h-9 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
-            <CalendarRange size={18} className="text-violet-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground">ทดสอบรายงานสรุป</p>
-            <p className="text-xs text-muted-foreground">
-              ของจริงส่งตามตารางเวลา (รายสัปดาห์ทุกวันจันทร์, รายเดือนวันที่ 1, รายปี 1 ม.ค.) กดเพื่อดูตัวอย่างได้ทันที
-            </p>
-          </div>
-        </div>
-
-        <div className="px-5 py-4">
-          <div className="grid grid-cols-2 gap-2">
-            {SUMMARY_TESTS.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => handleTestSummary(s.key, s.fn)}
-                disabled={summaryLoading !== null}
-                className="px-3 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted disabled:opacity-40 flex items-center justify-center gap-1.5"
-              >
-                {summaryLoading === s.key && <Loader2 size={13} className="animate-spin" />}
-                {s.label}
-              </button>
-            ))}
-          </div>
-
-          {summaryMsg && (
-            <p className={`text-xs mt-3 ${summaryMsg.type === 'success' ? 'text-primary' : 'text-destructive'}`}>
-              {summaryMsg.text}
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
