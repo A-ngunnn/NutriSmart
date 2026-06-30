@@ -320,9 +320,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               ความคิดเห็นจากผู้ใช้งานจริง ส่งตรงผ่านแอปของเรา
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <div className="flex gap-5 overflow-x-auto snap-x snap-mandatory pb-2 -mx-4 px-4 md:-mx-8 md:px-8 lg:-mx-16 lg:px-16 scrollbar-none sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:overflow-visible sm:px-0 max-w-5xl sm:mx-auto">
             {reviews.map((r) => (
-              <div key={r.id} className="bg-card rounded-3xl p-6 border border-border shadow-sm flex flex-col gap-3">
+              <div key={r.id} className="shrink-0 w-72 snap-center sm:w-auto bg-card rounded-3xl p-6 border border-border shadow-sm flex flex-col gap-3">
                 <Quote className="w-6 h-6 text-primary/30" />
                 <div className="flex gap-0.5">
                   {Array.from({ length: 5 }).map((_, i) => (
