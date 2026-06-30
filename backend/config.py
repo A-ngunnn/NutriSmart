@@ -5,7 +5,14 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     gemini_api_key: str = ""
+    # คีย์ Gemini สำรองจากโปรเจกต์/บัญชี Google อื่น (คั่นด้วย comma) — โควตาฟรีของ Gemini API
+    # นับ "ต่อโปรเจกต์" ไม่ใช่ต่อคีย์ ดังนั้นต้องเป็นคีย์จากคนละโปรเจกต์ Google Cloud ถึงจะได้โควตาเพิ่ม
+    # จริง (สร้างคีย์ซ้ำในโปรเจกต์เดิมแชร์โควตาเดียวกัน ไม่ช่วยอะไร)
+    gemini_api_keys_extra: str = ""
     openrouter_api_key: str = ""
+    # คีย์สำรองเพิ่มเติม (คั่นด้วย comma) — ใช้ตอนคีย์หลักโดน rate limit 429 จากโมเดลฟรี
+    # (50 ครั้ง/วันรวมทั้งบัญชี) จะได้สลับไปคีย์ถัดไปแทนที่จะพังทั้งระบบ
+    openrouter_api_keys_extra: str = ""
     supabase_url: str = ""
     supabase_anon_key: str = ""
     chroma_persist_dir: str = "./chroma_data"
@@ -27,6 +34,20 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def openrouter_api_keys_list(self) -> list[str]:
+        """คีย์หลักก่อน ตามด้วยคีย์สำรอง (ถ้ามี) — เรียงตามลำดับที่จะลองใช้"""
+        keys = [self.openrouter_api_key.strip()] if self.openrouter_api_key.strip() else []
+        keys += [k.strip() for k in self.openrouter_api_keys_extra.split(",") if k.strip()]
+        return keys
+
+    @property
+    def gemini_api_keys_list(self) -> list[str]:
+        """คีย์หลักก่อน ตามด้วยคีย์จากโปรเจกต์ Google อื่นๆ (ถ้ามี) — เรียงตามลำดับที่จะลองใช้"""
+        keys = [self.gemini_api_key.strip()] if self.gemini_api_key.strip() else []
+        keys += [k.strip() for k in self.gemini_api_keys_extra.split(",") if k.strip()]
+        return keys
 
     class Config:
         env_file = ".env"

@@ -30,6 +30,7 @@ from services.trainer_notifications import (
     run_weekly_summary, run_monthly_summary, run_yearly_summary, run_daily_reminder,
     run_sodium_good_day,
 )
+from services.storage_service import check_and_log_api_usage
 from middleware.auth import get_current_user
 
 logger = logging.getLogger("nutrismart.notifications")
@@ -173,11 +174,19 @@ def dismiss_notification(
 
 # ── Endpoints: Period Summaries (manual/demo trigger — see module docstring) ─
 
+def _check_summary_quota(user_id: str) -> None:
+    # weekly/monthly/yearly เรียก AI จริง (call_medgemma) ต่างจาก reminder/sodium-good-day ที่เป็น
+    # template ล้วนๆ — ใช้ key เดียวกันทั้ง 3 endpoint กันคนกดสลับยี่ห้อรวมกันเกิน 10 ครั้ง/วัน
+    if not check_and_log_api_usage(user_id, "/api/notifications/trigger-summary", max_limit=10):
+        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาสรุป AI ครบ 10 ครั้งของวันนี้แล้วค่ะ")
+
+
 @router.post("/trigger-summary/weekly", response_model=TriggerSummaryResponse)
 async def trigger_weekly_summary(
     body: TriggerSummaryRequest,
     user_id: str = Depends(get_current_user),
 ):
+    _check_summary_quota(user_id)
     notif = await run_weekly_summary(user_id)
     return TriggerSummaryResponse(inserted=True, notification_id=notif.id, title=notif.title, body=notif.body, line_sent=True)
 
@@ -187,6 +196,7 @@ async def trigger_monthly_summary(
     body: TriggerSummaryRequest,
     user_id: str = Depends(get_current_user),
 ):
+    _check_summary_quota(user_id)
     notif = await run_monthly_summary(user_id)
     return TriggerSummaryResponse(inserted=True, notification_id=notif.id, title=notif.title, body=notif.body, line_sent=True)
 
@@ -196,6 +206,7 @@ async def trigger_yearly_summary(
     body: TriggerSummaryRequest,
     user_id: str = Depends(get_current_user),
 ):
+    _check_summary_quota(user_id)
     notif = await run_yearly_summary(user_id)
     return TriggerSummaryResponse(inserted=True, notification_id=notif.id, title=notif.title, body=notif.body, line_sent=True)
 

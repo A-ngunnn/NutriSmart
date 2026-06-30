@@ -188,6 +188,9 @@ async def analyze_manual(
     save=false ใช้ตอนข้อมูลนี้มาจากการสแกนรูป (ผ่าน /api/analyze/image ที่ auto-save ไปแล้วรอบหนึ่ง
     พร้อม image_url) — ขั้นนี้แค่ขอคะแนนวิเคราะห์ ไม่ต้อง insert ซ้ำเป็นรายการที่สองของสแกนเดียวกัน
     """
+    # เช็ก Rate Limit 30 ครั้งต่อวัน (text-only เบากว่าสแกนรูป แต่ยังควรกันคนยิงรัว)
+    if not check_and_log_api_usage(user_id, "/api/analyze/manual", max_limit=30):
+        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาวิเคราะห์ข้อมูลครบ 30 ครั้งของวันนี้แล้วค่ะ")
     try:
         result = await analyze_manual_input(
             product_name=body.productName,
@@ -250,6 +253,9 @@ async def estimate_food(
     user_id: str = Depends(get_current_user),
 ):
     """Estimate nutrition for a given food name. Pass save=false to skip auto-save."""
+    # เช็ก Rate Limit 30 ครั้งต่อวัน
+    if not check_and_log_api_usage(user_id, "/api/analyze/estimate", max_limit=30):
+        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาประมาณค่าครบ 30 ครั้งของวันนี้แล้วค่ะ")
     try:
         from services.ai_service import estimate_food_nutrition
         result = await estimate_food_nutrition(body.food_name)
