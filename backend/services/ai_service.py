@@ -389,13 +389,24 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None, use
         except (ValueError, TypeError):
             age = 0
 
+        chronic_disease = str(user_profile.get('chronic_disease') or '').strip()
         user_context = (
             f"- ชื่อผู้ใช้: คุณ{name}\n"
             f"- น้ำหนัก: {user_profile.get('weight', 'ไม่ระบุ')} กก.\n"
             f"- ส่วนสูง: {user_profile.get('height', 'ไม่ระบุ')} ซม.\n"
             f"- อายุ: {age if age > 0 else 'ไม่ระบุ'} ปี\n"
             f"- เพศ: {gender}\n"
-            f"- เป้าหมายแคลอรีต่อวัน: {user_profile.get('goal_calories', 'ไม่ระบุ')} kcal"
+            f"- โรคประจำตัว: {chronic_disease or 'ไม่มี'}\n"
+            f"- เป้าหมายแคลอรีต่อวัน: {user_profile.get('goal_calories', 'ไม่ระบุ')} kcal\n"
+            f"- กินไปแล้ววันนี้: {user_profile.get('calories_eaten_today', 0)} kcal "
+            f"(โปรตีน {user_profile.get('protein_eaten_today', 0)} g, "
+            f"คาร์บ {user_profile.get('carbs_eaten_today', 0)} g, "
+            f"ไขมัน {user_profile.get('fat_eaten_today', 0)} g) "
+            f"จาก {user_profile.get('meals_logged_today', 0)} มื้อที่บันทึกไว้วันนี้\n"
+            f"- ดื่มน้ำไปแล้ววันนี้: {user_profile.get('water_ml_today', 0)} มล.\n"
+            f"(ใช้ข้อมูล 'กินไปแล้ววันนี้' นี้ตอบคำถามเกี่ยวกับสถานะวันนี้ของผู้ใช้โดยตรง เช่น "
+            f"ถ้าถูกถามว่ากินเกินหรือยัง ให้เทียบค่านี้กับเป้าหมายแคลอรีต่อวันจริงๆ ไม่ใช่เดาเอง "
+            f"และถ้ามีโรคประจำตัว ให้คำนึงถึงข้อจำกัดด้านโภชนาการของโรคนั้นในคำแนะนำด้วย)"
         )
     else:
         user_context = "ไม่มีข้อมูลสมาชิกแนบมา ให้เรียกผู้ใช้ว่า นาย หรือ แก แทน"
