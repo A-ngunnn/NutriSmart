@@ -38,12 +38,14 @@ logging.basicConfig(level=logging.INFO)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
-DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Route to OpenRouter
-DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash"    # Route to OpenRouter
+# บัญชี OpenRouter ติดลบอยู่ ($-0.14) ไม่มีบัตร/เครดิตผูกไว้เลย — เปลี่ยนทุกโมเดลมาเป็นรุ่น
+# ":free" ของ Gemma 4 (รองรับทั้งข้อความและรูปภาพ) กัน request ถูกปฏิเสธทันทีที่ยอดติดลบเกินที่
+# OpenRouter ยอมให้ค้าง — ข้อแลกเปลี่ยน: โมเดลฟรีมี rate limit รวมทั้งบัญชีที่ 50 ครั้ง/วัน (หรือ
+# 1,000/วัน ถ้าเคยเติมเงินสะสมครบ $10) และ 20 ครั้ง/นาที ไม่ใช่ต่อผู้ใช้คนเดียว
+DEFAULT_VISION_MODEL = "google/gemma-4-31b-it:free"  # Route to OpenRouter — รองรับรูปภาพด้วย
+DEFAULT_CHAT_MODEL = "google/gemma-4-31b-it:free"    # Route to OpenRouter
 
-# "google/gemma-2-9b-it" ตัวเดิมถูกถอดออกจาก OpenRouter แล้ว (404 "No endpoints found") —
-# ทุกแชทเลย fallback ไป Gemini เงียบๆตลอด ไม่เคยได้ใช้ MedGemma จริงเลย เปลี่ยนเป็นรุ่นที่ยังมีอยู่จริง
-MEDGEMMA_MODEL = "google/gemma-3-12b-it"
+MEDGEMMA_MODEL = "google/gemma-4-31b-it:free"
 
 def _get_headers(is_gemini: bool = False):
     if is_gemini:
@@ -395,9 +397,13 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None, use
 
     # ใช้ MedGemma เป็นหลัก (เก่งด้านโภชนาการ/สุขภาพ) ถ้าเรียกไม่ติด/error ค่อย fallback ไป Gemini
     # โดยอัตโนมัติ — ใช้ทั้งสองโมเดลร่วมกัน ไม่ใช่ตัด Gemini ออกจากระบบไปเลย
+    # หมายเหตุ: ตอนนี้ทั้งสองตัวแปรชี้โมเดลฟรีตัวเดียวกัน (ดูคอมเมนต์ด้านบน) เลขสันนิษฐานว่าไม่ต้อง
+    # retry ซ้ำโมเดลเดิมถ้าพัง (เปลืองโควตา rate limit ฟรีเปล่าๆ) — ถ้าวันหลังตั้งให้ต่างกันอีกจะ fallback ตามปกติ
     try:
         return await _call_ai_api(messages, temperature=0.6, model=MEDGEMMA_MODEL)
     except HTTPException:
+        if DEFAULT_CHAT_MODEL == MEDGEMMA_MODEL:
+            raise
         logger.warning("MedGemma chat call failed — falling back to Gemini (%s)", DEFAULT_CHAT_MODEL)
         return await _call_ai_api(messages, temperature=0.6, model=DEFAULT_CHAT_MODEL)
 
