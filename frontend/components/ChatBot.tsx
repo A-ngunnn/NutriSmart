@@ -21,7 +21,7 @@ const QUICK_REPLIES = [
 
 // คำต้อนรับเริ่มต้น (ปรับแบบกลางๆ ไว้ก่อน แล้ว AI จะปรับคำพูดตามโปรไฟล์ในการแชทจริง)
 const WELCOME =
-  'สวัสดีครับนาย! เราเทรนเนอร์ส่วนตัวของแกเอง วันนี้อยากปั้นหุ่นเวย์ไหน หรืออยากเช็กแคลเมนูอะไร บอกมาได้เลย จัดไปวัยรุ่น! 🏋️‍♂️🔥'
+  'สวัสดีค่ะ! เราเป็นเทรนเนอร์ส่วนตัวของคุณเอง วันนี้อยากดูแลสุขภาพแบบไหนดี หรืออยากเช็กแคลในเมนูไหน บอกมาได้เลยนะ 🏋️‍♀️🍃'
 
 function getTime() {
   return new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
@@ -105,6 +105,8 @@ export default function ChatBot() {
       const reply = await chatWithBackend(text, history, userProfile)
       setMessages((prev) => [...prev, { id: Date.now(), role: 'bot', text: reply, time: getTime() }])
     } catch (err: any) {
+      // log ไว้ debug — เดิมไม่มี log เลย ทำให้เห็นแค่ข้อความ fallback เดียวกันทุกครั้งโดยไม่รู้สาเหตุจริง
+      console.error('[ChatBot] sendMessage failed:', err)
       // โควตาแชทเต็ม (429) บอก error.detail จริงจาก backend ตรงๆ ไม่งั้นคนจะกดพิมพ์ซ้ำเรื่อยๆ
       // ด้วยข้อความ "ลองใหม่" ทั้งที่ติดโควตาอยู่ ไม่มีทางสำเร็จจนกว่าจะถึงวันถัดไป
       const isQuota = typeof err?.message === 'string' && err.message.includes('โควตา')
@@ -113,7 +115,7 @@ export default function ChatBot() {
         {
           id: Date.now(),
           role: 'bot',
-          text: isQuota ? err.message : 'เฮ้ยแก ระบบแอบรวนนิดหน่อยว่ะ ลองพิมพ์ใหม่อีกทีดิวะ! 🙏',
+          text: isQuota ? err.message : 'อุ๊ย ระบบสะดุดนิดหน่อยอะ ขอโทษด้วยนะ ลองพิมพ์อีกครั้งได้เลย 🙏',
           time: getTime(),
         },
       ])
