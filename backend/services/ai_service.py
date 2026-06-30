@@ -38,25 +38,36 @@ logging.basicConfig(level=logging.INFO)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
-DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Route to OpenRouter
-DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash"    # Route to OpenRouter
+# กลยุทธ์ฟรี 100%: เรียก Gemini API ตรง (ไม่ผ่าน OpenRouter) เพราะ Gemini API ของ Google เองมี
+# free tier จริงที่เบากว่า OpenRouter เยอะ (free tier ของ gemini-2.5-flash-lite ราวๆ 1,000+
+# request/วัน ต่อ "โปรเจกต์ Google Cloud" — เทียบกับ OpenRouter ที่เพดานรวมทั้งบัญชีแค่ 50/วัน)
+# ไม่มี "google/" prefix นำหน้า เพื่อให้ _call_ai_api ส่งไป Gemini API ตรง (ดู is_gemini ด้านล่าง)
+# ไม่ใช่ผ่าน OpenRouter ที่ทุกโมเดล route ด้วย "google/..." เสมอ
+DEFAULT_VISION_MODEL = "gemini-2.5-flash-lite"  # Route to Gemini API ตรง — รองรับรูปภาพด้วย
+DEFAULT_CHAT_MODEL = "gemini-2.5-flash-lite"    # Route to Gemini API ตรง
 
-# "google/gemma-2-9b-it" ตัวเดิมถูกถอดออกจาก OpenRouter แล้ว (404 "No endpoints found") —
-# ทุกแชทเลย fallback ไป Gemini เงียบๆตลอด ไม่เคยได้ใช้ MedGemma จริงเลย เปลี่ยนเป็นรุ่นที่ยังมีอยู่จริง
-MEDGEMMA_MODEL = "google/gemma-3-12b-it"
+MEDGEMMA_MODEL = "gemini-2.5-flash-lite"
 
-def _get_headers(is_gemini: bool = False):
+# โมเดล Gemini ตัวอื่นที่ใช้ free tier ได้เหมือนกัน — ลองตัวถัดไปถ้าตัวหลักโดน 429 (โควตารายวัน/
+# รายนาทีของโปรเจกต์เต็ม) แต่ละโมเดลมีโควตาแยกกันในโปรเจกต์เดียวกัน จึงยังพอช่วยได้ก่อนจะต้องสลับคีย์
+FALLBACK_GEMINI_MODELS = ["gemini-2.5-flash"]
+
+# โมเดลฟรีของ OpenRouter ไว้เป็นทางเลือกสำรองสุดท้าย ถ้า Gemini API ทุกคีย์/ทุกโมเดลโดน 429 หมดแล้ว
+FALLBACK_FREE_MODELS = ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"]
+
+
+def _get_headers(is_gemini: bool = False, api_key: Optional[str] = None):
     if is_gemini:
-        if not settings.gemini_api_key or settings.gemini_api_key == "dummy":
+        if not api_key or api_key == "dummy":
             raise HTTPException(status_code=503, detail="ขออภัยค่ะ ระบบ AI (Gemini) ยังไม่ได้ตั้งค่า API Key หรือขัดข้องชั่วคราว")
         return {
-            "Authorization": f"Bearer {settings.gemini_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-    if not settings.openrouter_api_key or settings.openrouter_api_key == "dummy":
+    if not api_key or api_key == "dummy":
         raise HTTPException(status_code=503, detail="ขออภัยค่ะ ระบบ AI (OpenRouter) ยังไม่ได้ตั้งค่า API Key หรือขัดข้องชั่วคราว")
     return {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://nutrismart.app",
         "X-Title": "NutriSmart AI",
@@ -66,45 +77,83 @@ def _get_headers(is_gemini: bool = False):
 # ── Helper: call OpenRouter ─────────────────────────────────────────────────
 
 async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Optional[str] = None) -> str:
-    """Send a chat completion request to the appropriate AI provider (Google Gemini or OpenRouter)."""
-    target_model = model or DEFAULT_VISION_MODEL
-    is_gemini = "gemini" in target_model.lower() and not target_model.startswith("google/")
-    
-    base_url = GEMINI_API_BASE_URL if is_gemini else OPENROUTER_BASE_URL
-    headers = _get_headers(is_gemini=is_gemini)
-    
-    payload = {
-        "model": target_model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 2048,
-    }
+    """
+    Send a chat completion request, retrying across providers/models/keys on 429 (quota exceeded)
+    until one succeeds. ลำดับการลอง (ฟรีทั้งหมด ไม่มีค่าใช้จ่าย):
 
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                base_url,
-                headers=headers,
-                json=payload,
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"AI API error {response.status_code}: {response.text[:500]}")
-                raise HTTPException(
-                    status_code=503,
-                    detail="การเชื่อมต่อ AI ล้มเหลว กรุณาลองใหม่อีกครั้ง"
-                )
-                
-            data = response.json()
-            try:
-                return data["choices"][0]["message"]["content"]
-            except (KeyError, IndexError) as e:
-                logger.error(f"Unexpected AI response structure: {data}")
-                raise HTTPException(status_code=503, detail="ขออภัยค่ะ ข้อมูลที่ตอบกลับมาจาก AI ไม่ถูกต้องชั่วคราว")
-                
-    except httpx.RequestError as exc:
-        logger.error(f"HTTP Request failed when calling AI API: {exc}")
-        raise HTTPException(status_code=503, detail="ขออภัยค่ะ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้ในขณะนี้")
+      1. Gemini API ตรง ด้วยโมเดลหลัก (gemini-2.5-flash-lite) × ทุกคีย์ใน gemini_api_keys_list
+      2. Gemini API ตรง ด้วยโมเดลสำรอง (FALLBACK_GEMINI_MODELS) × ทุกคีย์เดิม
+      3. ถ้า Gemini หมดทุกทางแล้วยัง 429 อยู่ — ลอง OpenRouter โมเดลฟรี (FALLBACK_FREE_MODELS) ×
+         ทุกคีย์ใน openrouter_api_keys_list เป็นทางเลือกสุดท้าย
+
+    ไม่ retry ถ้า error เป็นสาเหตุอื่นที่ไม่ใช่ 429 (เช่น โมเดลพัง, network ขาด) เพราะลองซ้ำไปก็ไม่ช่วย
+    """
+    primary_model = model or DEFAULT_VISION_MODEL
+    primary_is_gemini = "gemini" in primary_model.lower() and not primary_model.startswith("google/")
+
+    # แต่ละ attempt คือ (base_url, is_gemini, target_model, api_key)
+    attempts: list[tuple[str, bool, str, Optional[str]]] = []
+
+    if primary_is_gemini:
+        gemini_models = [primary_model] + FALLBACK_GEMINI_MODELS
+        gemini_keys = settings.gemini_api_keys_list or [settings.gemini_api_key]
+        for gm in gemini_models:
+            for gk in gemini_keys:
+                attempts.append((GEMINI_API_BASE_URL, True, gm, gk))
+        # Gemini หมดทางแล้วค่อย fallback ไป OpenRouter ฟรีเป็นไม้ตายสุดท้าย
+        openrouter_keys = settings.openrouter_api_keys_list or [settings.openrouter_api_key]
+        for om in FALLBACK_FREE_MODELS:
+            for ok in openrouter_keys:
+                attempts.append((OPENROUTER_BASE_URL, False, om, ok))
+    else:
+        is_free_model = primary_model.endswith(":free")
+        or_models = [primary_model] + (FALLBACK_FREE_MODELS if is_free_model else [])
+        openrouter_keys = settings.openrouter_api_keys_list or [settings.openrouter_api_key]
+        for om in or_models:
+            for ok in openrouter_keys:
+                attempts.append((OPENROUTER_BASE_URL, False, om, ok))
+
+    last_error: Optional[HTTPException] = None
+
+    for base_url, is_gemini, target_model, api_key in attempts:
+        headers = _get_headers(is_gemini=is_gemini, api_key=api_key)
+        payload = {
+            "model": target_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": 2048,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(base_url, headers=headers, json=payload)
+
+                # 429 = โควตาเต็ม, 401/403 = คีย์นี้ใช้ไม่ได้/ไม่ถูกต้อง — ทั้งสองกรณีควรลองคีย์/โมเดล/
+                # provider ถัดไปแทนที่จะเลิกเลย เผื่อคีย์ใดคีย์หนึ่งในรายการตั้งค่าผิดหรือหมดอายุ
+                if response.status_code in (429, 401, 403):
+                    logger.warning(
+                        "AI API call failed (%s) for model=%s — trying next key/model fallback",
+                        response.status_code, target_model,
+                    )
+                    last_error = HTTPException(status_code=429, detail="ขออภัยค่ะ AI ฟรีโควตาเต็มชั่วคราว กรุณาลองใหม่ภายหลัง")
+                    continue
+
+                if response.status_code != 200:
+                    logger.error(f"AI API error {response.status_code}: {response.text[:500]}")
+                    raise HTTPException(status_code=503, detail="การเชื่อมต่อ AI ล้มเหลว กรุณาลองใหม่อีกครั้ง")
+
+                data = response.json()
+                try:
+                    return data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError):
+                    logger.error(f"Unexpected AI response structure: {data}")
+                    raise HTTPException(status_code=503, detail="ขออภัยค่ะ ข้อมูลที่ตอบกลับมาจาก AI ไม่ถูกต้องชั่วคราว")
+
+        except httpx.RequestError as exc:
+            logger.error(f"HTTP Request failed when calling AI API: {exc}")
+            raise HTTPException(status_code=503, detail="ขออภัยค่ะ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ AI ได้ในขณะนี้")
+
+    # ลองครบทุก (provider × โมเดล × คีย์) แล้วยังโดน 429 อยู่ — หมดทางเลือกจริงๆ
+    raise last_error or HTTPException(status_code=503, detail="ขออภัยค่ะ ระบบ AI ไม่พร้อมใช้งานชั่วคราว")
 
 
 def _parse_json_response(text: str) -> dict:
@@ -395,9 +444,13 @@ async def chat(user_message: str, chat_history: Optional[list[dict]] = None, use
 
     # ใช้ MedGemma เป็นหลัก (เก่งด้านโภชนาการ/สุขภาพ) ถ้าเรียกไม่ติด/error ค่อย fallback ไป Gemini
     # โดยอัตโนมัติ — ใช้ทั้งสองโมเดลร่วมกัน ไม่ใช่ตัด Gemini ออกจากระบบไปเลย
+    # หมายเหตุ: ตอนนี้ทั้งสองตัวแปรชี้โมเดลฟรีตัวเดียวกัน (ดูคอมเมนต์ด้านบน) เลขสันนิษฐานว่าไม่ต้อง
+    # retry ซ้ำโมเดลเดิมถ้าพัง (เปลืองโควตา rate limit ฟรีเปล่าๆ) — ถ้าวันหลังตั้งให้ต่างกันอีกจะ fallback ตามปกติ
     try:
         return await _call_ai_api(messages, temperature=0.6, model=MEDGEMMA_MODEL)
     except HTTPException:
+        if DEFAULT_CHAT_MODEL == MEDGEMMA_MODEL:
+            raise
         logger.warning("MedGemma chat call failed — falling back to Gemini (%s)", DEFAULT_CHAT_MODEL)
         return await _call_ai_api(messages, temperature=0.6, model=DEFAULT_CHAT_MODEL)
 

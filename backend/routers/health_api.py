@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
 
-from services.storage_service import get_health_summary, get_service_status
+from services.storage_service import get_health_summary, get_service_status, check_and_log_api_usage
 from services.trainer_notifications import generate_ai_health_insights
 from middleware.auth import get_current_user
 
@@ -66,6 +66,8 @@ async def health_insights(
     """วิเคราะห์ insight สุขภาพด้วย AI จริง (MedGemma + RAG) ตามบริบทของ user คนนั้น
     (โรคประจำตัว, สัดส่วนมาโคร, แนวโน้ม) ต่างจาก insight แบบ template ที่คำนวณฝั่ง frontend —
     เรียกเมื่อผู้ใช้กดปุ่ม "วิเคราะห์ด้วย AI" เท่านั้น ไม่ auto-call ทุกครั้งที่เปิดหน้าเพื่อประหยัดโควตา AI"""
+    if not check_and_log_api_usage(user_id, "/api/health/insights", max_limit=10):
+        raise HTTPException(status_code=429, detail="คุณใช้งานโควตาวิเคราะห์ด้วย AI ครบ 10 ครั้งของวันนี้แล้วค่ะ")
     try:
         insights = await generate_ai_health_insights(user_id, period)
         return HealthInsightsResponse(insights=insights)

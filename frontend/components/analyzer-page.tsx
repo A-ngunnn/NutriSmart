@@ -356,9 +356,10 @@ export default function AnalyzerPage() {
         status: mapped.score >= 80 ? "safe" : mapped.score >= 50 ? "moderate" : "danger",
       })
       setCameFromOcr(false)
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      alert("เกิดข้อผิดพลาดในการวิเคราะห์ กรุณาลองใหม่อีกครั้ง")
+      const isQuota = typeof err?.message === "string" && err.message.includes("โควตา")
+      alert(isQuota ? err.message : "เกิดข้อผิดพลาดในการวิเคราะห์ กรุณาลองใหม่อีกครั้ง")
     } finally {
       setLoading(false)
     }
