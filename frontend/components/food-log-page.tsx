@@ -636,7 +636,7 @@ export default function FoodLogPage({ tdee = 2000 }: FoodLogPageProps) {
               <p className="text-xs text-muted-foreground mt-1">ไปที่หน้าวิเคราะห์เพื่อสแกนสินค้า</p>
             </div>
           ) : (
-            [...scanHistory].reverse().map(scan => (
+            scanHistory.map(scan => (
               <div key={scan.id} className="bg-card rounded-3xl p-4 shadow-sm border border-border">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
