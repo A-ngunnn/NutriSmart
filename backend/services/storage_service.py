@@ -50,6 +50,17 @@ def initialize_storage() -> None:
             db.commit()
     except Exception:
         logging.getLogger("nutrismart.storage").exception("image_url migration check failed")
+
+    # avatar_url was added to reviews after the table was first created on some deployments —
+    # create_all() only creates missing tables, it never ALTERs columns onto an existing one,
+    # so any reviews table created before this field was added is left without it, causing
+    # every POST /api/reviews to fail with a raw "column does not exist" 500 error
+    try:
+        with SessionLocal() as db:
+            db.execute(text("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS avatar_url VARCHAR"))
+            db.commit()
+    except Exception:
+        logging.getLogger("nutrismart.storage").exception("reviews.avatar_url migration check failed")
 def _today_str() -> str:
     return date.today().isoformat()
 
@@ -1047,15 +1058,45 @@ def get_health_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
     try:
         from calendar import monthrange
         from collections import defaultdict
+        from concurrent.futures import ThreadPoolExecutor
 
-        profile = get_profile(user_id)
-        tdee = _calc_tdee(profile)
         today = date.today()
+        week_start = today - timedelta(days=6)
+        year_start = (today - timedelta(days=365)).replace(day=1)
+
+        def _fetch_scan_raw():
+            with SessionLocal() as db:
+                return db.query(models.ScanHistory.date, models.ScanHistory.score).filter(
+                    models.ScanHistory.user_id == user_id
+                ).all()
+
+        def _fetch_year_entries():
+            with SessionLocal() as db:
+                return db.query(models.FoodLog.date, models.FoodLog.calories).filter(
+                    models.FoodLog.user_id == user_id,
+                    models.FoodLog.date >= year_start.isoformat(),
+                    models.FoodLog.date <= today.isoformat()
+                ).all()
+
+        # 5 query ข้างบนนี้ไม่ขึ้นกับกันเลย แต่เดิมยิงทีละตัวแบบ sync เรียงกัน (sequential round-trip
+        # ไป Supabase ทุกตัว) ทำให้เวลารวมบวมเป็นผลรวมของทุก query พร้อมกัน ทั้งที่รันคู่ขนานได้
+        # เปลี่ยนมายิงพร้อมกันในเธรดแยก ลดเวลารวมให้เหลือแค่เท่าของ query ที่ช้าสุดตัวเดียว
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            f_profile = pool.submit(get_profile, user_id)
+            f_entries7 = pool.submit(get_food_entries, user_id, week_start.isoformat(), today.isoformat())
+            f_water7 = pool.submit(get_water_entries, user_id, week_start.isoformat(), today.isoformat())
+            f_scan_raw = pool.submit(_fetch_scan_raw)
+            f_year_entries = pool.submit(_fetch_year_entries)
+
+            profile = f_profile.result()
+            entries7 = f_entries7.result()
+            water7 = f_water7.result()
+            scan_raw = f_scan_raw.result()
+            year_entries_raw = f_year_entries.result()
+
+        tdee = _calc_tdee(profile)
 
         # ── Weekly (last 7 days) ─────────────────────────────────────────────
-        week_start = today - timedelta(days=6)
-        entries7 = get_food_entries(user_id, start_date=week_start.isoformat(), end_date=today.isoformat())
-        water7 = get_water_entries(user_id, start_date=week_start.isoformat(), end_date=today.isoformat())
         water_by_date: Dict[str, float] = defaultdict(float)
         for w in water7:
             water_by_date[str(w["date"])] += float(w["amount"])
@@ -1083,22 +1124,10 @@ def get_health_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
         avg_calories_weekly = int(round(sum(d["calories"] for d in last7days) / 7))
 
         # ── Scan history ─────────────────────────────────────────────────────
-        with SessionLocal() as db:
-            scan_raw = db.query(models.ScanHistory.date, models.ScanHistory.score).filter(
-                models.ScanHistory.user_id == user_id
-            ).all()
-
         avg_score = (int(round(sum(float(s.score) for s in scan_raw) / len(scan_raw)))
                      if scan_raw else 0)
 
         # ── Yearly & Monthly Data (past 12 months) ───────────────────────────
-        year_start = (today - timedelta(days=365)).replace(day=1)
-        with SessionLocal() as db:
-            year_entries_raw = db.query(models.FoodLog.date, models.FoodLog.calories).filter(
-                models.FoodLog.user_id == user_id,
-                models.FoodLog.date >= year_start.isoformat(),
-                models.FoodLog.date <= today.isoformat()
-            ).all()
 
         # Monthly (current month, week-by-week avg daily cal)
         first_of_month = today.replace(day=1)
