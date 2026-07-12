@@ -17,7 +17,15 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     chroma_persist_dir: str = "./chroma_data"
     chroma_collection_name: str = "nutri_knowledge"
-    knowledge_dir: str = str(Path(__file__).resolve().parents[1] / "database" / "knowledge")
+    knowledge_dir: str = str(
+        next(
+            (p for p in [
+                Path(__file__).resolve().parents[1] / "database" / "knowledge",  # project root / database / knowledge
+                Path(__file__).resolve().parent / "database" / "knowledge",       # backend / database / knowledge
+            ] if p.exists()),
+            Path(__file__).resolve().parents[1] / "database" / "knowledge",      # default (log warning if missing)
+        )
+    )
     backend_port: int = 8080
     medgemma_model: str = "google/gemma-2-9b-it"
     medgemma_fallback_model: str = "gpt-4o-mini"

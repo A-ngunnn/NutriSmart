@@ -127,9 +127,9 @@ async def _call_ai_api(messages: list[dict], temperature: float = 0.3, model: Op
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(base_url, headers=headers, json=payload)
 
-                # 429 = โควตาเต็ม, 401/403 = คีย์นี้ใช้ไม่ได้/ไม่ถูกต้อง — ทั้งสองกรณีควรลองคีย์/โมเดล/
-                # provider ถัดไปแทนที่จะเลิกเลย เผื่อคีย์ใดคีย์หนึ่งในรายการตั้งค่าผิดหรือหมดอายุ
-                if response.status_code in (429, 401, 403):
+                # 429 = โควตาเต็ม, 401/403 = คีย์ใช้ไม่ได้, 503 = โมเดล overloaded ชั่วคราว
+                # ทุกกรณีให้ลองคีย์/โมเดล/provider ถัดไปแทนที่จะหยุดเลย
+                if response.status_code in (429, 401, 403, 503):
                     logger.warning(
                         "AI API call failed (%s) for model=%s — trying next key/model fallback",
                         response.status_code, target_model,
